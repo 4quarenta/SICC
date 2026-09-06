@@ -262,13 +262,21 @@ function normalizeSearch(value: string) {
 type FaceApiModule = typeof import("@vladmandic/face-api");
 let faceModelsPromise: Promise<FaceApiModule> | null = null;
 
+// GitHub Pages serves SICC under /SICC/. Resolve model files from the Vite
+// base path instead of the domain root, otherwise face detection fails.
+function faceModelPath() {
+  const base = String(import.meta.env.BASE_URL || "/").replace(/\/?$/, "/");
+  return `${base}models/face-api`;
+}
+
 async function ensureFaceModels() {
   if (!faceModelsPromise) {
     faceModelsPromise = import("@vladmandic/face-api").then(async (faceapi) => {
+      const modelPath = faceModelPath();
       await Promise.all([
-        faceapi.nets.tinyFaceDetector.loadFromUri("/models/face-api"),
-        faceapi.nets.faceLandmark68TinyNet.loadFromUri("/models/face-api"),
-        faceapi.nets.faceRecognitionNet.loadFromUri("/models/face-api"),
+        faceapi.nets.tinyFaceDetector.loadFromUri(modelPath),
+        faceapi.nets.faceLandmark68TinyNet.loadFromUri(modelPath),
+        faceapi.nets.faceRecognitionNet.loadFromUri(modelPath),
       ]);
       return faceapi;
     }).catch((error) => {
