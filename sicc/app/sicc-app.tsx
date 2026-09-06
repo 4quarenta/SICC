@@ -127,7 +127,8 @@ async function compressImage(file: File, targetBytes: number) {
       element.onerror = () => reject(new Error("IMAGE_DECODE_FAILED"));
       element.src = sourceUrl;
     });
-    let maxDimension = 1200;
+    // Keep enough detail for facial review while avoiding multi-megabyte phone photos.
+    let maxDimension = 960;
     let outputType: "image/webp" | "image/jpeg" = "image/webp";
     let blob: Blob | null = null;
     const encode = (canvas: HTMLCanvasElement, quality: number) => new Promise<Blob | null>((resolve) => {
@@ -141,14 +142,14 @@ async function compressImage(file: File, targetBytes: number) {
       const context = canvas.getContext("2d");
       if (!context) return file;
       context.drawImage(image, 0, 0, canvas.width, canvas.height);
-      let quality = 0.68;
+      let quality = 0.5;
       blob = await encode(canvas, quality);
       if (outputType === "image/webp" && blob?.type !== "image/webp") {
         outputType = "image/jpeg";
         blob = await encode(canvas, quality);
       }
-      while (blob && blob.size > targetBytes && quality > 0.16) {
-        quality -= 0.08;
+      while (blob && blob.size > targetBytes && quality > 0.08) {
+        quality -= 0.06;
         blob = await encode(canvas, quality);
       }
       if (blob && blob.size <= targetBytes) break;
@@ -629,9 +630,9 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
       const faceFiles = form.getAll("facePhotos").filter((item): item is File => item instanceof File && item.size > 0);
       const tattooFiles = form.getAll("tattoos").filter((item): item is File => item instanceof File && item.size > 0);
       const imageFiles = [...faceFiles, ...tattooFiles];
-      // Keep storage small while reserving room for the multipart form fields.
-      // There is no client-side photo-count limit; only the request-size guard below.
-      const targetBytes = Math.max(70_000, Math.floor(900_000 / Math.max(1, imageFiles.length)));
+      // Compact aggressively for mobile uploads: about 240 KB for one image,
+      // decreasing to a 45 KB floor when several images are selected.
+      const targetBytes = Math.max(45_000, Math.floor(240_000 / Math.max(1, imageFiles.length)));
       const [compactedFaceFiles, compactedTattooFiles] = await withTimeout(
         Promise.all([
           Promise.all(faceFiles.map((file) => compressImage(file, targetBytes))),
