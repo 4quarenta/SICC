@@ -38,9 +38,9 @@ type View = "search" | "register" | "account" | "operators" | "records" | "alert
 type SearchMode = "text" | "face" | "tattoo";
 type RegisterNotice = { kind: "success" | "error"; text: string };
 
-// Keep facial recognition unavailable until it is explicitly reviewed and
-// re-enabled. Face photos used in records remain unaffected.
-const FACE_SEARCH_ENABLED = false;
+// Keep image-based searches unavailable until they are explicitly reviewed
+// and re-enabled. Photos used in records remain unaffected.
+const IMAGE_SEARCH_ENABLED = false;
 
 const statusLabel: Record<Status, string> = {
   verified: "Verificado",
@@ -523,9 +523,9 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
     setLoading(true);
     setMessage("");
     setQuery("");
-    if (searchMode === "face" && !FACE_SEARCH_ENABLED) {
+    if (searchMode !== "text" && !IMAGE_SEARCH_ENABLED) {
       setLoading(false);
-      setMessage("A busca por reconhecimento facial está desabilitada.");
+      setMessage("As buscas por imagem estão desabilitadas.");
       return;
     }
     const form = new FormData(event.currentTarget);
@@ -770,8 +770,8 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
           <section className="search-card">
             <div className="search-tabs" role="tablist" aria-label="Tipo de consulta">
               <button className={searchMode === "text" ? "active" : ""} onClick={() => setSearchMode("text")}>⌨ Nome/alcunha</button>
-              {FACE_SEARCH_ENABLED && <button className={searchMode === "face" ? "active" : ""} onClick={() => setSearchMode("face")}>◎ Rosto</button>}
-              <button className={searchMode === "tattoo" ? "active" : ""} onClick={() => setSearchMode("tattoo")}>◇ Tatuagem</button>
+              {IMAGE_SEARCH_ENABLED && <button className={searchMode === "face" ? "active" : ""} onClick={() => setSearchMode("face")}>◎ Rosto</button>}
+              {IMAGE_SEARCH_ENABLED && <button className={searchMode === "tattoo" ? "active" : ""} onClick={() => setSearchMode("tattoo")}>◇ Tatuagem</button>}
             </div>
             {searchMode === "text" ? (
               <form onSubmit={(event) => event.preventDefault()}>
