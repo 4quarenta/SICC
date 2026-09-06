@@ -20,7 +20,7 @@ export default function Portal() {
 
   async function refresh(bootstrapToken = bootstrapInvite) {
     const controller = new AbortController();
-    const timeout = window.setTimeout(() => controller.abort(), 12000);
+    const timeout = window.setTimeout(() => controller.abort(), 30_000);
     try {
       const statusPath = bootstrapToken ? `/api/auth/status?bootstrap=${encodeURIComponent(bootstrapToken)}` : "/api/auth/status";
       const response = await apiFetch(statusPath, { cache: "no-store", signal: controller.signal });
@@ -62,17 +62,33 @@ export default function Portal() {
     try {
       const body = Object.fromEntries(new FormData(event.currentTarget).entries());
       const controller = new AbortController();
-      const timeout = window.setTimeout(() => controller.abort(), 20000);
+      const timeout = window.setTimeout(() => controller.abort(), 45_000);
       let response: Response;
       try {
         response = await apiFetch(endpoint, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal: controller.signal });
       } finally {
         window.clearTimeout(timeout);
       }
-      const data = await response.json() as { error?: string; access_token?: string; refresh_token?: string; expires_in?: number };
+      const data = await response.json() as { id?: string; name?: string; warName?: string; rank?: string; email?: string; role?: "admin" | "operator"; invitedBy?: string | null; error?: string; access_token?: string; refresh_token?: string; expires_in?: number };
       if (!response.ok) { setMessage(data.error ?? "Não foi possível concluir."); setLoading(false); return; }
       if (data.access_token && data.refresh_token) {
         await requireSupabase().auth.setSession({ access_token: data.access_token, refresh_token: data.refresh_token });
+      }
+      // The auth endpoints already return the validated operator profile.
+      // Avoid a second status round-trip, which is especially slow on a cold
+      // Supabase Edge Function and can trigger a false login timeout.
+      if (data.id && data.name && data.email && data.role) {
+        setOperator({
+          id: data.id,
+          name: data.name,
+          warName: data.warName ?? data.name,
+          rank: data.rank ?? "",
+          email: data.email,
+          role: data.role,
+          invitedBy: data.invitedBy ?? null,
+        });
+        setLoading(false);
+        return;
       }
       await refresh();
     } catch (error) {
