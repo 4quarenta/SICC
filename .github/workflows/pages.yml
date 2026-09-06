@@ -34,7 +34,7 @@ jobs:
       - name: Build static frontend
         run: npm run build:pages
       - name: Mark artifact as static
-        run: touch pages-dist/.nojekyll
+        run: touch ../pages-dist/.nojekyll
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
