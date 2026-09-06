@@ -1,0 +1,1 @@
+ALTER TABLE `person_media` ADD `captured_at` text;
