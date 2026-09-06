@@ -107,6 +107,16 @@ function currentBrasiliaDateTime() {
   return `${year}-${month}-${day}T${hour}:${minute}`;
 }
 
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string) {
+  return new Promise<T>((resolve, reject) => {
+    const timer = window.setTimeout(() => reject(new Error(message)), timeoutMs);
+    promise.then(
+      (value) => { window.clearTimeout(timer); resolve(value); },
+      (error) => { window.clearTimeout(timer); reject(error); },
+    );
+  });
+}
+
 async function compressImage(file: File, targetBytes: number) {
   if (file.size <= targetBytes && file.type === "image/webp") return file;
   const sourceUrl = URL.createObjectURL(file);
@@ -622,12 +632,22 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
       // Keep storage small while reserving room for the multipart form fields.
       // There is no client-side photo-count limit; only the request-size guard below.
       const targetBytes = Math.max(70_000, Math.floor(900_000 / Math.max(1, imageFiles.length)));
-      const compactedFaceFiles = await Promise.all(faceFiles.map((file) => compressImage(file, targetBytes)));
-      const compactedTattooFiles = await Promise.all(tattooFiles.map((file) => compressImage(file, targetBytes)));
-      const [faceEmbeddings, tattooHashes] = await Promise.all([
-        Promise.all(faceFiles.map(safeFaceEmbedding)),
-        Promise.all(compactedTattooFiles.map(safeVisualSignature)),
-      ]);
+      const [compactedFaceFiles, compactedTattooFiles] = await withTimeout(
+        Promise.all([
+          Promise.all(faceFiles.map((file) => compressImage(file, targetBytes))),
+          Promise.all(tattooFiles.map((file) => compressImage(file, targetBytes))),
+        ]),
+        45_000,
+        "IMAGE_PROCESSING_TIMEOUT",
+      );
+      const [faceEmbeddings, tattooHashes] = await withTimeout(
+        Promise.all([
+          Promise.all(faceFiles.map(safeFaceEmbedding)),
+          Promise.all(compactedTattooFiles.map(safeVisualSignature)),
+        ]),
+        45_000,
+        "FACE_PROCESSING_TIMEOUT",
+      );
       if (faceEmbeddings.some((embedding) => !embedding)) {
         showRegisterNotice("error", "Não foi possível detectar um rosto em uma das fotos. Use imagens com apenas uma pessoa visível e o rosto nítido.");
         setLoading(false);
@@ -659,7 +679,14 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
         form.set("longitude", location.longitude);
         form.set("accuracyMeters", location.accuracyMeters);
       }
-      const response = await apiFetch("/api/people", { method: "POST", body: form });
+      const controller = new AbortController();
+      const requestTimeout = window.setTimeout(() => controller.abort(), 30_000);
+      let response: Response;
+      try {
+        response = await apiFetch("/api/people", { method: "POST", body: form, signal: controller.signal });
+      } finally {
+        window.clearTimeout(requestTimeout);
+      }
       if (response.status === 413) {
         showRegisterNotice("error", "As imagens selecionadas ultrapassam o limite de envio. Tente reduzir a quantidade de fotos.");
         setLoading(false);
@@ -683,9 +710,16 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
       setFactionChoice("");
       setNewFactionName("");
       setLocation(null);
-    } catch {
+    } catch (error) {
       setLoading(false);
-      showRegisterNotice("error", "Não foi possível concluir o envio. Verifique as imagens ou sua conexão e tente novamente.");
+      const timeoutMessage = error instanceof Error && error.message === "IMAGE_PROCESSING_TIMEOUT"
+        ? "A compactação das imagens demorou demais. Tente selecionar menos fotos ou imagens menores."
+        : error instanceof Error && error.message === "FACE_PROCESSING_TIMEOUT"
+          ? "A análise facial demorou demais. Verifique a conexão e tente novamente."
+          : error instanceof DOMException && error.name === "AbortError"
+            ? "O salvamento demorou mais que o esperado. Verifique sua conexão e tente novamente."
+            : "Não foi possível concluir o envio. Verifique as imagens ou sua conexão e tente novamente.";
+      showRegisterNotice("error", timeoutMessage);
     }
   }
 
