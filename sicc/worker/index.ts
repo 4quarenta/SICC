@@ -5,7 +5,6 @@ import handler from "vinext/server/app-router-entry";
 interface Env {
   ASSETS: Fetcher;
   DB: D1Database;
-  BUCKET: R2Bucket;
   IMAGES: {
     input(stream: ReadableStream): {
       transform(options: Record<string, unknown>): {
@@ -30,10 +29,8 @@ const worker = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const bindings = globalThis as typeof globalThis & {
       __SICC_DB?: D1Database;
-      __SICC_BUCKET?: R2Bucket;
     };
     bindings.__SICC_DB = env.DB;
-    bindings.__SICC_BUCKET = env.BUCKET;
     const url = new URL(request.url);
 
     if (url.pathname === "/_vinext/image") {

@@ -1,24 +1,23 @@
 # SICC
 
 SICC é uma aplicação mobile-first de cadastro, consulta de pessoas e alertas
-operacionais (QTC). Este repositório contém a versão beta atualmente executada
-como um Cloudflare Worker privado, com D1/SQLite, R2 e autenticação própria.
+operacionais (QTC). A publicação atual usa GitHub Pages para o frontend
+estático e uma Supabase Edge Function para a API, com PostgreSQL, Auth e
+Storage privado.
 
 ## Diagnóstico e decisão de arquitetura
 
-O código real foi auditado antes desta preparação. A stack atual é React 19 +
-Next/Vinext + Vite, executada no Worker da Cloudflare. As rotas em `app/api`
-dependem diretamente de bindings D1 (`__SICC_DB`) e R2 (`__SICC_BUCKET`), e a
-autenticação atual usa sessões próprias e tabelas em D1. Portanto, um deploy
-direto do checkout como **Cloudflare Pages estático não funcionaria**: as APIs,
-autenticação, banco e arquivos precisam primeiro ser extraídos para Supabase
-Auth/Postgres/Storage e Functions/Workers.
+O código real foi auditado antes desta preparação. A interface continua em
+React 19 + Next/Vinext + Vite, mas o build do GitHub Pages usa uma entrada Vite
+estática em `github-pages/`. A API compatível com os endpoints de `app/api`
+foi extraída para `supabase/functions/sicc-api`, com autenticação JWT do
+Supabase e Storage privado.
 
-Esta entrega prepara a migração sem fingir que contas externas já foram
-criadas. O schema reproduzível está em
+Esta entrega prepara e publica a migração sem fingir que contas externas já
+foram criadas. O schema reproduzível está em
 `supabase/migrations/20260906000000_initial_sicc_schema.sql`; o diagnóstico
-detalhado está em [`docs/AUDIT.md`](docs/AUDIT.md). O Worker privado existente
-continua sendo o ambiente ativo até a validação do novo backend.
+detalhado está em [`docs/AUDIT.md`](docs/AUDIT.md). O guia operacional está em
+[`docs/GITHUB-PAGES-SUPABASE.md`](docs/GITHUB-PAGES-SUPABASE.md).
 
 ## Desenvolvimento local
 
@@ -32,7 +31,8 @@ npm run dev
 
 Scripts principais:
 
-- `npm run build`: gera e valida o artefato do Worker atual.
+- `npm run build`: gera e valida o artefato legado do Worker.
+- `npm run build:pages`: gera o artefato estático em `../pages-dist` para o GitHub Pages.
 - `npm test`: build + teste de metadados/renderização.
 - `npm run lint`: lint do projeto.
 - `npm run db:generate`: gera migration Drizzle somente para o legado D1.
@@ -54,11 +54,10 @@ executado no navegador.
 | `SUPABASE_URL` | projeto Supabase alvo | cliente/servidor |
 | `SUPABASE_PUBLISHABLE_KEY` | chave pública do cliente Supabase | navegador/Functions |
 | `SUPABASE_SERVICE_ROLE_KEY` | migração, Auth administrativo e signed URLs | apenas servidor/Edge Function |
-| `SUPABASE_STORAGE_BUCKET` | legado; não usado para fotos na arquitetura R2 | servidor |
-| `R2_BUCKET_NAME` | bucket privado das fotos | Worker/Pages Function |
-| `R2_ENDPOINT` | endpoint S3 compatível do R2 | servidor |
-| `R2_ACCESS_KEY_ID` | chave de acesso R2 | segredo do servidor |
-| `R2_SECRET_ACCESS_KEY` | segredo de acesso R2 | segredo do servidor |
+| `SUPABASE_STORAGE_BUCKET` | bucket privado `sicc-media` | Edge Function |
+| `VITE_SUPABASE_URL` | URL do projeto no frontend estático | navegador |
+| `VITE_SUPABASE_PUBLISHABLE_KEY` | chave pública do frontend | navegador |
+| `VITE_SICC_API_URL` | URL da Edge Function `sicc-api` | navegador |
 | `FACE_MATCH_PROVIDER` | `local_face_embedding` no beta; trocar por serviço servidor aprovado na migração | servidor |
 | `FACE_MATCH_ENDPOINT` | endpoint do provedor, quando a migração usar um serviço externo | segredo do servidor |
 
@@ -87,9 +86,9 @@ conta GitHub.
 3. Habilite apenas os métodos de Auth necessários. O cadastro de operador deve
    ser uma Edge Function/endpoint servidor que valida convite com hash e
    expiração; não confie em campos enviados pelo navegador.
-4. Crie um bucket R2 privado. A migration não depende do Storage Supabase:
-   grava somente a `object_key`; imagens devem ser acessadas por URL temporária
-   assinada pelo servidor, somente após verificar a sessão e a autorização.
+4. A migration cria o bucket privado `sicc-media`; imagens são acessadas por
+   URL temporária assinada pela Edge Function, somente após verificar a sessão
+   e a autorização.
 5. Faça o backfill dos dados D1 com um script revisado e testado. Não importe
    fotos como Base64 nem para GitHub: envie-as ao Storage e grave apenas
    `object_key` e metadados em `person_media`/`qtc_alert_media`.
@@ -99,23 +98,22 @@ servidor para autorização. Nenhuma política usa `user_metadata` como fonte de
 privilégio. A tabela de perfil deve ser criada/alterada pela Function de
 provisionamento do operador.
 
-## Cloudflare Pages
+## GitHub Pages
 
-Pages pode hospedar o frontend após a separação das rotas de servidor. O
-checkout atual ainda não tem um output estático funcional: `npm run build`
-gera um Worker que depende de D1/R2. Não configure `dist` como Pages output
-antes de concluir a extração para Supabase Functions/Workers, pois isso
-publicaria uma interface sem login, consulta ou gravação funcionais.
+GitHub Pages hospeda somente o frontend estático. O comando
+`npm run build:pages` gera o diretório `pages-dist`; a Edge Function mantém
+login, consulta, gravação e arquivos fora do Pages.
 
 Quando essa extração estiver pronta:
 
-1. Conecte o repositório privado GitHub ao Cloudflare Pages.
-2. Configure o comando de build e o diretório de saída definidos pelo novo
-   frontend (não invente esses valores a partir do Worker atual).
+1. Habilite GitHub Pages com GitHub Actions no repositório.
+2. O workflow `.github/workflows/pages.yml` instala dependências e publica
+   `pages-dist` após cada push em `main`.
 3. Cadastre somente a publishable key e a URL no frontend; mantenha a
-   `service_role` nas Functions/Workers.
-4. Configure domínio HTTPS, CORS restrito ao domínio final e fallback SPA para
-   as rotas do frontend.
+   `service_role` exclusivamente na Edge Function.
+4. Configure CORS restrito ao domínio final quando o endereço do Pages estiver
+   confirmado. A conta GitHub precisa ter Pages para repositórios privados; não
+   torne o código público para contornar essa exigência.
 
 ## Similaridade facial e de tatuagem
 

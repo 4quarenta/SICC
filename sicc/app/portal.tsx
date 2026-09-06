@@ -2,8 +2,10 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import SICCApp from "./sicc-app";
+import { apiFetch } from "./api-client";
+import { requireSupabase } from "./supabase-browser";
 
-type Operator = { id: number; name: string; warName: string; rank: string; email: string; role: "admin" | "operator"; invitedBy: string | null };
+type Operator = { id: string; name: string; warName: string; rank: string; email: string; role: "admin" | "operator"; invitedBy: string | null };
 
 const RANKS = ["Aluno Soldado", "Soldado", "Cabo", "3º Sargento", "2º Sargento", "1º Sargento", "Subtenente", "Cadete", "Aspirante a Oficial", "2º Tenente", "1º Tenente", "Capitão", "Major", "Tenente-Coronel", "Coronel"];
 
@@ -19,7 +21,7 @@ export default function Portal() {
     const controller = new AbortController();
     const timeout = window.setTimeout(() => controller.abort(), 12000);
     try {
-      const response = await fetch("/api/auth/status", { cache: "no-store", signal: controller.signal });
+      const response = await apiFetch("/api/auth/status", { cache: "no-store", signal: controller.signal });
       const data = await response.json() as { operator?: Operator | null; bootstrapAllowed?: boolean; error?: string };
       if (!response.ok) throw new Error(data.error ?? "Não foi possível verificar o acesso.");
       setOperator(data.operator ?? null); setBootstrap(Boolean(data.bootstrapAllowed)); setMessage("");
@@ -51,12 +53,15 @@ export default function Portal() {
       const timeout = window.setTimeout(() => controller.abort(), 20000);
       let response: Response;
       try {
-        response = await fetch(endpoint, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal: controller.signal });
+        response = await apiFetch(endpoint, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal: controller.signal });
       } finally {
         window.clearTimeout(timeout);
       }
-      const data = await response.json() as { error?: string };
+      const data = await response.json() as { error?: string; access_token?: string; refresh_token?: string; expires_in?: number };
       if (!response.ok) { setMessage(data.error ?? "Não foi possível concluir."); setLoading(false); return; }
+      if (data.access_token && data.refresh_token) {
+        await requireSupabase().auth.setSession({ access_token: data.access_token, refresh_token: data.refresh_token });
+      }
       await refresh();
     } catch (error) {
       setMessage(error instanceof DOMException && error.name === "AbortError" ? "A operação demorou demais. Verifique sua conexão e tente novamente." : (error instanceof Error ? error.message : "Não foi possível concluir."));
@@ -65,7 +70,7 @@ export default function Portal() {
   }
 
   if (loading && !operator) return <main className="auth-shell"><div className="auth-card"><b>Carregando acesso seguro…</b></div></main>;
-  if (operator) return <SICCApp operator={operator} onLogout={async () => { await fetch("/api/auth/logout", { method: "POST" }); setOperator(null); setMode("login"); }} />;
+  if (operator) return <SICCApp operator={operator} onLogout={async () => { await apiFetch("/api/auth/logout", { method: "POST" }); await requireSupabase().auth.signOut(); setOperator(null); setMode("login"); }} />;
 
   return <main className="auth-shell">
     <section className="auth-brand"><span className="brand-mark">SI</span><div><b>SICC</b><small>Sistema Integrado de Cadastro e Consulta</small></div></section>

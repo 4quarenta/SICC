@@ -238,5 +238,5 @@ create policy audit_logs_select on public.audit_logs for select to authenticated
 -- Intentionally no visual_hash/perceptual-hash column is carried forward.
 -- The beta's 128-value face descriptor maps to pgvector. Search must remain in
 -- a server/Edge Function, use an approved threshold, and require human review.
--- Images are stored in a private Cloudflare R2 bucket. PostgreSQL stores only
--- object_key and metadata; the server must authorize and sign every read.
+-- Images are stored in a private Supabase Storage bucket. PostgreSQL stores
+-- object_key and metadata; the Edge Function must authorize and sign every read.

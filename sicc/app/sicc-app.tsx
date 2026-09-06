@@ -3,8 +3,9 @@
 import { ChangeEvent, FormEvent, useEffect, useRef, useState } from "react";
 import { ALERT_CATEGORIES, ALERT_PRIORITY_LABEL, ALERT_PRIORITY_ORDER, type AlertPriority } from "./alert-categories";
 import { LOCALITIES, LOCALITY_CITIES, LOCALITY_STATES } from "./localities";
+import { apiFetch } from "./api-client";
 
-type Operator = { id: number; name: string; warName: string; rank: string; email: string; role: "admin" | "operator"; invitedBy: string | null };
+type Operator = { id: string; name: string; warName: string; rank: string; email: string; role: "admin" | "operator"; invitedBy: string | null };
 type Status = "verified" | "review" | "attention";
 type Address = { id?: number; label: string; address: string; city: string; state: string; notes: string };
 type Faction = { id: number; name: string };
@@ -305,12 +306,12 @@ async function safeFaceEmbedding(file: File) {
 }
 
 async function reindexMissingFaceEmbeddings() {
-  const response = await fetch("/api/face-index");
+  const response = await apiFetch("/api/face-index");
   if (!response.ok) return;
   const data = await response.json() as { media?: Array<{ id: number; url: string; originalName: string }> };
   const updates: Array<{ mediaId: number; embedding: number[] }> = [];
   for (const media of data.media ?? []) {
-    const imageResponse = await fetch(media.url);
+    const imageResponse = await apiFetch(media.url);
     if (!imageResponse.ok) continue;
     const blob = await imageResponse.blob();
     const file = new File([blob], media.originalName || `face-${media.id}.jpg`, { type: blob.type || "image/jpeg" });
@@ -318,7 +319,7 @@ async function reindexMissingFaceEmbeddings() {
     if (embedding) updates.push({ mediaId: media.id, embedding });
   }
   if (!updates.length) return;
-  await fetch("/api/face-index", {
+  await apiFetch("/api/face-index", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ updates }),
@@ -383,7 +384,7 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
   }
 
   async function loadFactions() {
-    const response = await fetch("/api/factions");
+    const response = await apiFetch("/api/factions");
     if (!response.ok) return;
     const data = await response.json() as { factions?: Faction[] };
     setFactions(data.factions ?? []);
@@ -394,7 +395,7 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
     const controller = new AbortController();
     const timeout = window.setTimeout(() => controller.abort(), 15000);
     try {
-      const response = await fetch("/api/invites", { method: "POST", signal: controller.signal, cache: "no-store" });
+      const response = await apiFetch("/api/invites", { method: "POST", signal: controller.signal, cache: "no-store" });
       let data: { code?: string; expiresAt?: string; error?: string } = {};
       try { data = await response.json() as { code?: string; expiresAt?: string; error?: string }; } catch { /* resposta não JSON */ }
       if (!response.ok || !data.code || !data.expiresAt) {
@@ -437,7 +438,7 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
     const controller = new AbortController();
     const timeout = window.setTimeout(() => controller.abort(), 15000);
     try {
-      const response = await fetch(`/api/people?q=${encodeURIComponent(clean)}`, { signal: controller.signal, cache: "no-store" });
+      const response = await apiFetch(`/api/people?q=${encodeURIComponent(clean)}`, { signal: controller.signal, cache: "no-store" });
       let data: { people?: Person[]; error?: string } = {};
       try { data = await response.json() as { people?: Person[]; error?: string }; } catch { /* resposta não JSON do servidor */ }
       if (!response.ok) {
@@ -543,14 +544,14 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
         }
         form.set("visualHash", signature);
       }
-      const response = await fetch("/api/search-image", { method: "POST", body: form });
+      const response = await apiFetch("/api/search-image", { method: "POST", body: form });
       const data = (await response.json()) as { personIds?: number[]; notice?: string; error?: string };
       if (!response.ok) {
         setMessage(data.error ?? "Não foi possível analisar a imagem.");
         return;
       }
       const people = await Promise.all((data.personIds ?? []).map(async (id) => {
-        const result = await fetch(`/api/people?id=${id}`);
+        const result = await apiFetch(`/api/people?id=${id}`);
         const payload = (await result.json()) as { people?: Person[] };
         return payload.people?.[0] ?? null;
       }));
@@ -642,7 +643,7 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
         form.set("longitude", location.longitude);
         form.set("accuracyMeters", location.accuracyMeters);
       }
-      const response = await fetch("/api/people", { method: "POST", body: form });
+      const response = await apiFetch("/api/people", { method: "POST", body: form });
       if (response.status === 413) {
         showRegisterNotice("error", "As imagens selecionadas ultrapassam o limite de envio. Tente reduzir a quantidade de fotos.");
         setLoading(false);
@@ -680,7 +681,7 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
     }
     setLoading(true);
     const form = new FormData(event.currentTarget);
-    const response = await fetch(`/api/people/${approachPerson.id}/approaches`, {
+    const response = await apiFetch(`/api/people/${approachPerson.id}/approaches`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -696,7 +697,7 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
       setMessage(data.error ?? "Não foi possível registrar a abordagem.");
       return;
     }
-    const refreshed = await fetch(`/api/people?id=${approachPerson.id}`);
+    const refreshed = await apiFetch(`/api/people?id=${approachPerson.id}`);
     const refreshedData = (await refreshed.json()) as { people: Person[] };
     const person = refreshedData.people[0];
     setSelected(person);
@@ -716,7 +717,7 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
 
   async function deletePerson(person: Person) {
     setLoading(true);
-    const response = await fetch(`/api/people/${person.id}`, { method: "DELETE" });
+    const response = await apiFetch(`/api/people/${person.id}`, { method: "DELETE" });
     const data = await response.json() as { deleted?: boolean; error?: string };
     setLoading(false);
     if (!response.ok || !data.deleted) {
@@ -1017,7 +1018,7 @@ function AlertsView({ operator }: { operator: Operator }) {
       if (appliedMunicipalityFilter.trim()) params.set("municipality", appliedMunicipalityFilter.trim());
       if (appliedNeighborhoodFilter.trim()) params.set("neighborhood", appliedNeighborhoodFilter.trim());
       if (appliedStatusFilter) params.set("status", appliedStatusFilter);
-      const response = await fetch(`/api/alerts?${params.toString()}`, { cache: "no-store" });
+      const response = await apiFetch(`/api/alerts?${params.toString()}`, { cache: "no-store" });
       const data = await response.json() as { alerts?: AlertRecord[]; error?: string };
       if (!response.ok) throw new Error(data.error ?? "Não foi possível carregar os alertas.");
       setAlerts(data.alerts ?? []);
@@ -1085,7 +1086,7 @@ function AlertsView({ operator }: { operator: Operator }) {
       form.set("categoryKey", categoryKey); form.set("municipalityState", municipalityState); form.set("municipality", municipality); form.set("neighborhood", neighborhood); form.set("peopleInfo", peopleInfo.trim()); form.set("vehicleInfo", vehicleInfo.trim()); form.set("description", description.trim()); form.set("occurredAt", occurredAt);
       if (locationLink.trim()) form.set("locationLink", locationLink.trim());
       compacted.forEach((file) => form.append("images", file));
-      const response = await fetch("/api/alerts", { method: "POST", body: form });
+      const response = await apiFetch("/api/alerts", { method: "POST", body: form });
       const data = await response.json() as { alert?: AlertRecord; error?: string };
       if (!response.ok) throw new Error(data.error ?? "Não foi possível publicar o alerta.");
       clearForm(); setShowCreate(false); setAppliedStatusFilter("open"); setStatusFilter("open"); setNotice("QTC publicado e visível aos operadores autenticados."); await loadAlerts();
@@ -1106,7 +1107,7 @@ function AlertsView({ operator }: { operator: Operator }) {
   async function changeStatusConfirmed(alert: AlertRecord, next: "open" | "resolved") {
     setSaving(true); setNotice("");
     try {
-      const response = await fetch(`/api/alerts/${alert.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ status: next }) });
+      const response = await apiFetch(`/api/alerts/${alert.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ status: next }) });
       const data = await response.json() as { error?: string };
       if (!response.ok) throw new Error(data.error ?? "Não foi possível atualizar o QTC.");
       await loadAlerts(); setSelectedAlert((current) => current ? { ...current, status: next, resolvedBy: next === "resolved" ? operator.email : null, resolvedByName: next === "resolved" ? operator.name : null, resolvedAt: next === "resolved" ? new Date().toISOString() : null } : null); setNotice(next === "resolved" ? "QTC marcado como resolvido." : "QTC reaberto.");
@@ -1120,7 +1121,7 @@ function AlertsView({ operator }: { operator: Operator }) {
   async function deleteAlertConfirmed(alert: AlertRecord) {
     setSaving(true); setNotice("");
     try {
-      const response = await fetch(`/api/alerts/${alert.id}`, { method: "DELETE" });
+      const response = await apiFetch(`/api/alerts/${alert.id}`, { method: "DELETE" });
       const data = await response.json() as { deleted?: boolean; error?: string };
       if (!response.ok || !data.deleted) throw new Error(data.error ?? "Não foi possível apagar o QTC.");
       setSelectedAlert(null);
@@ -1234,17 +1235,17 @@ type AdminRow = { id: number; name: string; warName?: string; rank?: string; ema
 function AdminList({ kind }: { kind: "operators" | "records" }) {
   const [rows, setRows] = useState<AdminRow[]>([]); const [page, setPage] = useState(1); const [total, setTotal] = useState(0); const [loading, setLoading] = useState(true);
   const [confirmRow, setConfirmRow] = useState<AdminRow | null>(null);
-  async function load() { setLoading(true); const response = await fetch(`/api/admin/${kind}?page=${page}`); const data = await response.json() as { rows?: AdminRow[]; total?: number }; setRows(data.rows ?? []); setTotal(data.total ?? 0); setLoading(false); }
+  async function load() { setLoading(true); const response = await apiFetch(`/api/admin/${kind}?page=${page}`); const data = await response.json() as { rows?: AdminRow[]; total?: number }; setRows(data.rows ?? []); setTotal(data.total ?? 0); setLoading(false); }
   useEffect(() => {
     let active = true;
-    fetch(`/api/admin/${kind}?page=${page}`).then((response) => response.json()).then((data: { rows?: AdminRow[]; total?: number }) => {
+    apiFetch(`/api/admin/${kind}?page=${page}`).then((response) => response.json()).then((data: { rows?: AdminRow[]; total?: number }) => {
       if (!active) return;
       setRows(data.rows ?? []); setTotal(data.total ?? 0); setLoading(false);
     });
     return () => { active = false; };
   }, [page, kind]);
   async function remove(row: AdminRow) {
-    const response = kind === "operators" ? await fetch(`/api/admin/operators?id=${row.id}`, { method: "DELETE" }) : await fetch(`/api/people/${row.id}`, { method: "DELETE" });
+    const response = kind === "operators" ? await apiFetch(`/api/admin/operators?id=${row.id}`, { method: "DELETE" }) : await apiFetch(`/api/people/${row.id}`, { method: "DELETE" });
     if (response.ok) await load();
   }
   const pages = Math.max(1, Math.ceil(total / 10));
@@ -1372,7 +1373,7 @@ function EditPersonModal({
       if (editFactionChoice === "new") form.set("newFactionName", editNewFactionName);
       else form.set("factionId", editFactionChoice);
     }
-    const response = await fetch(`/api/people/${person.id}`, { method: "PUT", body: form });
+    const response = await apiFetch(`/api/people/${person.id}`, { method: "PUT", body: form });
     const data = (await response.json()) as { person?: Person; error?: string };
     onLoading(false);
     if (!response.ok || !data.person) {
