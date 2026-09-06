@@ -254,13 +254,46 @@ async function handleAuth(path: string, req: Request) {
   if (path === "/auth/register" && req.method === "POST") {
     const body = await bodyJson(req);
     const invite = clean(String(body.invite ?? ""));
-    const { data: invitation } = await api.from("operator_invites").select("*").eq("code_hash", await sha256(invite)).is("used_at", null).gt("expires_at", new Date().toISOString()).maybeSingle();
-    if (!invitation) return fail("Código de convite inválido ou expirado.", 400);
+    const now = new Date().toISOString();
+    const { data: invitation } = await api.from("operator_invites")
+      .select("id,created_by,invite_type")
+      .eq("code_hash", await sha256(invite))
+      .is("revoked_at", null)
+      .gt("expires_at", now)
+      .or("invite_type.eq.bulk,used_at.is.null")
+      .maybeSingle();
+    if (!invitation) return fail("Código de convite inválido, revogado ou expirado.", 400);
     const { data: created, error } = await api.auth.admin.createUser({ email: clean(String(body.email ?? "")), password: String(body.password ?? ""), email_confirm: true });
     if (error || !created.user) return fail(error?.message ?? "Não foi possível criar a conta.", 400);
     const { error: profileError } = await api.from("operator_profiles").insert({ user_id: created.user.id, war_name: clean(String(body.warName ?? "")), rank: clean(String(body.rank ?? "")), role: "operator", invited_by: invitation.created_by });
-    if (profileError) return fail(profileError.message, 400);
-    await api.from("operator_invites").update({ used_at: new Date().toISOString(), used_by: created.user.id }).eq("id", invitation.id);
+    if (profileError) {
+      await api.auth.admin.deleteUser(created.user.id);
+      return fail(profileError.message, 400);
+    }
+    if (invitation.invite_type === "bulk") {
+      const { error: consumeError } = await api.from("operator_invites")
+        .update({ use_count: (Number((invitation as { use_count?: number }).use_count) || 0) + 1 })
+        .eq("id", invitation.id)
+        .is("revoked_at", null)
+        .gt("expires_at", now);
+      if (consumeError) {
+        await api.from("operator_profiles").delete().eq("user_id", created.user.id);
+        await api.auth.admin.deleteUser(created.user.id);
+        return fail("Não foi possível registrar o uso do convite.", 409);
+      }
+    } else {
+      const { data: consumed, error: consumeError } = await api.from("operator_invites")
+        .update({ used_at: now, used_by: created.user.id })
+        .eq("id", invitation.id)
+        .is("used_at", null)
+        .select("id")
+        .maybeSingle();
+      if (consumeError || !consumed) {
+        await api.from("operator_profiles").delete().eq("user_id", created.user.id);
+        await api.auth.admin.deleteUser(created.user.id);
+        return fail("Este convite já foi utilizado.", 409);
+      }
+    }
     const client = createClient(supabaseUrl, anonKey);
     const { data: session, error: loginError } = await client.auth.signInWithPassword({ email: clean(String(body.email ?? "")), password: String(body.password ?? "") });
     if (loginError || !session.session) return fail("Conta criada, mas não foi possível iniciar a sessão.", 500);
@@ -284,10 +317,26 @@ async function handleData(path: string, req: Request) {
     return error ? fail(error.message, 400) : json({ faction: data });
   }
   if (path === "/invites" && req.method === "POST") {
+    const body = await bodyJson(req);
+    const kind = String(body.kind ?? "single").toLowerCase() === "bulk" ? "bulk" : "single";
+    if (kind === "bulk" && current.role !== "admin") return fail("Somente administradores podem criar convites reutilizáveis.", 403);
     const code = randomCode();
-    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
-    const { error } = await api.from("operator_invites").insert({ code_hash: await sha256(code), created_by: user.id, expires_at: expiresAt });
-    return error ? fail(error.message, 500) : json({ code, expiresAt });
+    const expiresAt = new Date(Date.now() + (kind === "bulk" ? 30 : 7) * 24 * 60 * 60 * 1000).toISOString();
+    const { data, error } = await api.from("operator_invites")
+      .insert({ code_hash: await sha256(code), created_by: user.id, expires_at: expiresAt, invite_type: kind, use_count: 0 })
+      .select("id")
+      .single();
+    return error || !data ? fail(error?.message ?? "Não foi possível gerar o convite.", 500) : json({ id: data.id, code, expiresAt, kind });
+  }
+  const inviteMatch = path.match(/^\/invites\/(\d+)$/);
+  if (inviteMatch && req.method === "PATCH") {
+    if (current.role !== "admin") return fail("Somente administradores podem revogar convites.", 403);
+    const { error } = await api.from("operator_invites")
+      .update({ revoked_at: new Date().toISOString() })
+      .eq("id", Number(inviteMatch[1]))
+      .eq("invite_type", "bulk")
+      .is("revoked_at", null);
+    return error ? fail(error.message, 400) : json({ revoked: true });
   }
   if (path === "/people" && req.method === "GET") {
     const url = new URL(req.url);
