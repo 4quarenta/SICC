@@ -6,7 +6,7 @@ import { LOCALITIES, LOCALITY_CITIES, LOCALITY_STATES } from "./localities";
 import { apiFetch } from "./api-client";
 
 type Operator = { id: string; name: string; warName: string; rank: string; email: string; role: "admin" | "operator"; invitedBy: string | null };
-type Status = "verified" | "review" | "attention";
+type Status = "alive" | "dead";
 type Address = { id?: number; label: string; address: string; city: string; state: string; notes: string };
 type Faction = { id: number; name: string };
 type SeizedObject = { id?: number; description: string; quantity?: number; seizedAt: string; location?: string; notes?: string };
@@ -43,9 +43,8 @@ type RegisterNotice = { kind: "success" | "error"; text: string };
 const IMAGE_SEARCH_ENABLED = false;
 
 const statusLabel: Record<Status, string> = {
-  verified: "Verificado",
-  review: "Em revisão",
-  attention: "Atenção",
+  alive: "Vivo",
+  dead: "Morto",
 };
 
 const mediaLabel = {
@@ -857,7 +856,7 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
                 <label>Nome da mãe<input name="motherName" value={registerDraft.motherName} onChange={(event) => setRegisterDraft((draft) => ({ ...draft, motherName: event.target.value }))} placeholder="Auxilia a confirmação de identidade" /></label>
                 <label>Cidade de referência<input name="city" value={registerDraft.city} onChange={(event) => setRegisterDraft((draft) => ({ ...draft, city: event.target.value }))} placeholder="Município" /></label>
                 <label>UF<select name="state" value={registerDraft.state} onChange={(event) => setRegisterDraft((draft) => ({ ...draft, state: event.target.value }))}><option>PB</option><option>RN</option><option>PE</option><option>CE</option></select></label>
-                <label>Situação<select name="status" defaultValue="review"><option value="verified">Verificado</option><option value="review">Em revisão</option><option value="attention">Atenção</option></select></label>
+                <label>Situação<select name="status" defaultValue="alive"><option value="alive">Vivo</option><option value="dead">Morto</option></select></label>
               </div>
               <div className="faction-fields">
                 <label className="faction-toggle">Faccionado?<select value={factionAffiliated ? "yes" : "no"} onChange={(event) => { const enabled = event.target.value === "yes"; setFactionAffiliated(enabled); if (!enabled) { setFactionChoice(""); setNewFactionName(""); } }}><option value="no">Não</option><option value="yes">Sim</option></select></label>
@@ -1417,7 +1416,7 @@ function EditPersonModal({
             <label>Nome da mãe<input name="motherName" defaultValue={person.motherName ?? ""} /></label>
             <label>Cidade de referência<input name="city" defaultValue={person.city ?? ""} /></label>
             <label>UF<select name="state" defaultValue={person.state ?? "PB"}><option>PB</option><option>RN</option><option>PE</option><option>CE</option></select></label>
-            <label>Situação<select name="status" defaultValue={person.status}><option value="verified">Verificado</option><option value="review">Em revisão</option><option value="attention">Atenção</option></select></label>
+            <label>Situação<select name="status" defaultValue={person.status}><option value="alive">Vivo</option><option value="dead">Morto</option></select></label>
           </div>
           <div className="faction-fields">
             <label>Faccionado?<select value={editFactionAffiliated ? "yes" : "no"} onChange={(event) => { const enabled = event.target.value === "yes"; setEditFactionAffiliated(enabled); if (!enabled) { setEditFactionChoice(""); setEditNewFactionName(""); } }}><option value="no">Não</option><option value="yes">Sim</option></select></label>
