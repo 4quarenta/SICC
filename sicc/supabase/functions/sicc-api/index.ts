@@ -309,7 +309,7 @@ async function handleData(path: string, req: Request) {
   if (path === "/people" && req.method === "POST") {
     const form = await req.formData();
     const now = new Date().toISOString();
-    const { data: person, error } = await api.from("people").insert({ full_name: clean(form.get("fullName")), nickname: clean(form.get("nickname")) || null, cpf: clean(form.get("cpf")), birth_date: clean(form.get("birthDate")) || null, mother_name: clean(form.get("motherName")) || null, city: clean(form.get("city")) || null, state: clean(form.get("state")) || null, status: "review", notes: clean(form.get("notes")) || null, faction_id: Number(form.get("factionId")) || null, created_by: user.id, created_at: now, updated_at: now }).select("id").single();
+    const { data: person, error } = await api.from("people").insert({ full_name: clean(form.get("fullName")), nickname: clean(form.get("nickname")) || null, cpf: clean(form.get("cpf")), birth_date: clean(form.get("birthDate")) || null, mother_name: clean(form.get("motherName")) || null, city: clean(form.get("city")) || null, state: clean(form.get("state")) || null, status: "alive", notes: clean(form.get("notes")) || null, faction_id: Number(form.get("factionId")) || null, created_by: user.id, created_at: now, updated_at: now }).select("id").single();
     if (error || !person) return fail(error?.message ?? "Não foi possível salvar o cadastro.", 400);
     try {
       const addresses = JSON.parse(String(form.get("addresses") ?? "[]")) as Array<Record<string, string>>;
