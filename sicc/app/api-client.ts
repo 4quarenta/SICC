@@ -14,8 +14,11 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit) {
     : raw;
   const headers = new Headers(init?.headers);
   const client = requireSupabase();
-  const publishableKey = (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined)?.trim() || "sb_publishable_OME7kzPLD68iEvjru56_MA_pFdj44k-";
-  headers.set("apikey", publishableKey);
+  // The hosted Edge Function currently accepts the project legacy anon key at its gateway. It is public and remains protected by RLS.
+  const publicKey = (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim()
+    || (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined)?.trim()
+    || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndzZnZwbXlwbWV6bGplbHRhcmh6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ5MzE2MTksImV4cCI6MjEwMDUwNzYxOX0.fSnSYNoWk6_Ay2d-hOApMyHndFkeqihNo_Q2CsGSGZU";
+  headers.set("apikey", publicKey);
   const { data } = await client.auth.getSession();
   if (data.session?.access_token) headers.set("Authorization", `Bearer ${data.session.access_token}`);
   return fetch(target, { ...init, headers });

@@ -130,6 +130,19 @@ function operatorPayload(user: User, current: { user_id: string; war_name: strin
   return { id: user.id, name: current.war_name, warName: current.war_name, rank: current.rank, email: user.email ?? "", role: current.role, invitedBy: current.invited_by };
 }
 
+async function findBootstrapInvite(token: string) {
+  const cleanToken = token.trim();
+  if (!cleanToken) return null;
+  const { data, error } = await api.from("bootstrap_invites")
+    .select("id,expires_at")
+    .eq("token_hash", await sha256(cleanToken))
+    .is("used_at", null)
+    .gt("expires_at", new Date().toISOString())
+    .maybeSingle();
+  if (error) throw error;
+  return data as { id: number; expires_at: string } | null;
+}
+
 async function signedUrl(objectKey: string | null) {
   if (!objectKey) return null;
   const { data } = await api.storage.from(bucket).createSignedUrl(objectKey, 300);
@@ -188,7 +201,10 @@ async function handleAuth(path: string, req: Request) {
     const user = await authenticatedUser(req);
     if (!user) {
       const { count } = await api.from("operator_profiles").select("user_id", { count: "exact", head: true });
-      return json({ operator: null, bootstrapAllowed: (count ?? 0) === 0 && Boolean(Deno.env.get("SICC_BOOTSTRAP_KEY")) });
+      const bootstrapToken = new URL(req.url).searchParams.get("bootstrap") ?? "";
+      const invite = await findBootstrapInvite(bootstrapToken);
+      const bootstrapAllowed = (count ?? 0) === 0 && (bootstrapToken ? Boolean(invite) : Boolean(Deno.env.get("SICC_BOOTSTRAP_KEY")));
+      return json({ operator: null, bootstrapAllowed });
     }
     const current = await profile(user.id);
     return json({ operator: current ? operatorPayload(user, current) : null, bootstrapAllowed: false });
@@ -207,11 +223,29 @@ async function handleAuth(path: string, req: Request) {
     const body = await bodyJson(req);
     const expected = Deno.env.get("SICC_BOOTSTRAP_KEY") ?? "";
     const { count } = await api.from("operator_profiles").select("user_id", { count: "exact", head: true });
-    if (!expected || String(body.bootstrapKey ?? "") !== expected || (count ?? 0) > 0) return fail("Ativação inicial indisponível.", 403);
+    const bootstrapToken = clean(String(body.bootstrapInvite ?? ""));
+    const invitation = await findBootstrapInvite(bootstrapToken);
+    const legacyKeyValid = Boolean(expected) && String(body.bootstrapKey ?? "") === expected;
+    if ((!legacyKeyValid && !invitation) || (count ?? 0) > 0) return fail("Ativação inicial indisponível.", 403);
     const { data: created, error } = await api.auth.admin.createUser({ email: clean(String(body.email ?? "")), password: String(body.password ?? ""), email_confirm: true });
     if (error || !created.user) return fail(error?.message ?? "Não foi possível criar a conta administradora.", 400);
     const { error: profileError } = await api.from("operator_profiles").insert({ user_id: created.user.id, war_name: clean(String(body.warName ?? "")), rank: clean(String(body.rank ?? "")), role: "admin" });
-    if (profileError) return fail(profileError.message, 400);
+    if (profileError) {
+      await api.auth.admin.deleteUser(created.user.id);
+      return fail(profileError.message, 400);
+    }
+    if (invitation) {
+      const { data: consumed, error: consumeError } = await api.from("bootstrap_invites")
+        .update({ used_at: new Date().toISOString() })
+        .eq("id", invitation.id)
+        .is("used_at", null)
+        .select("id")
+        .maybeSingle();
+      if (consumeError || !consumed) {
+        await api.auth.admin.deleteUser(created.user.id);
+        return fail("Este link de ativação já foi utilizado.", 409);
+      }
+    }
     const client = createClient(supabaseUrl, anonKey);
     const { data: session, error: loginError } = await client.auth.signInWithPassword({ email: clean(String(body.email ?? "")), password: String(body.password ?? "") });
     if (loginError || !session.session) return fail("Conta criada, mas não foi possível iniciar a sessão.", 500);

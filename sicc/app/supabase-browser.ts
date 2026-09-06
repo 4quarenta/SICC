@@ -1,10 +1,12 @@
 import { createClient } from "@supabase/supabase-js";
 
 const url = (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim() || "https://wsfvpmypmezljeltarhz.supabase.co";
-const publishableKey = (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined)?.trim() || "sb_publishable_OME7kzPLD68iEvjru56_MA_pFdj44k-";
+const publicKey = (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim()
+  || (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined)?.trim()
+  || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndzZnZwbXlwbWV6bGplbHRhcmh6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ5MzE2MTksImV4cCI6MjEwMDUwNzYxOX0.fSnSYNoWk6_Ay2d-hOApMyHndFkeqihNo_Q2CsGSGZU";
 
-export const supabase = url && publishableKey
-  ? createClient(url, publishableKey, {
+export const supabase = url && publicKey
+  ? createClient(url, publicKey, {
       auth: {
         persistSession: true,
         autoRefreshToken: true,
