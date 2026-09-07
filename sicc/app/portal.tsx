@@ -7,7 +7,7 @@ import { requireSupabase } from "./supabase-browser";
 
 type Operator = { id: string; name: string; warName: string; rank: string; email: string; role: "admin" | "operator"; invitedBy: string | null };
 
-const RANKS = ["Aluno Soldado", "Soldado", "Cabo", "3º Sargento", "2º Sargento", "1º Sargento", "Subtenente", "Cadete", "Aspirante a Oficial", "2º Tenente", "1º Tenente", "Capitão", "Major", "Tenente-Coronel", "Coronel"];
+const RANKS = ["AL SD", "SD", "CB", "3º SGT", "2º SGT", "1º SGT", "ST", "CAD", "ASP OF", "2º TEN", "1º TEN", "CAP", "MAJ", "TEN CEL", "CEL"];
 
 export default function Portal() {
   const [operator, setOperator] = useState<Operator | null>(null);
