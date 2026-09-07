@@ -6,6 +6,7 @@ import { LOCALITIES, LOCALITY_CITIES, LOCALITY_STATES } from "./localities";
 import { apiFetch } from "./api-client";
 
 type Operator = { id: string; name: string; warName: string; rank: string; email: string; role: "admin" | "operator"; invitedBy: string | null };
+type InviteLink = { id: number; code: string; expiresAt: string; link: string; kind: "single" | "bulk"; revokedAt?: string | null; useCount?: number };
 type Status = "alive" | "dead";
 type Address = { id?: number; label: string; address: string; city: string; state: string; notes: string };
 type Faction = { id: number; name: string };
@@ -371,7 +372,6 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
   const [factionAffiliated, setFactionAffiliated] = useState(false);
   const [factionChoice, setFactionChoice] = useState("");
   const [newFactionName, setNewFactionName] = useState("");
-  type InviteLink = { id: number; code: string; expiresAt: string; link: string; kind: "single" | "bulk"; revokedAt?: string | null; useCount?: number };
   const [invite, setInvite] = useState<InviteLink | null>(null);
   const [inviteCopyStatus, setInviteCopyStatus] = useState<"idle" | "copied" | "error">("idle");
   const [inviteGenerating, setInviteGenerating] = useState(false);
@@ -380,6 +380,63 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
   const [bulkInviteGenerating, setBulkInviteGenerating] = useState(false);
   const [bulkInviteConfirm, setBulkInviteConfirm] = useState(false);
   const [logoutConfirm, setLogoutConfirm] = useState(false);
+
+  const inviteStorageKey = `sicc:invite-links:${operator.id}`;
+
+  function readStoredInvites() {
+    try {
+      const raw = window.localStorage.getItem(inviteStorageKey);
+      const parsed = raw ? JSON.parse(raw) as unknown : [];
+      if (!Array.isArray(parsed)) return [] as InviteLink[];
+      return parsed.filter((item): item is InviteLink => Boolean(item && typeof item === "object" && typeof (item as InviteLink).id === "number" && typeof (item as InviteLink).code === "string" && typeof (item as InviteLink).link === "string" && typeof (item as InviteLink).expiresAt === "string" && ((item as InviteLink).kind === "single" || (item as InviteLink).kind === "bulk")));
+    } catch {
+      return [] as InviteLink[];
+    }
+  }
+
+  function writeStoredInvites(items: InviteLink[]) {
+    try {
+      if (items.length) window.localStorage.setItem(inviteStorageKey, JSON.stringify(items));
+      else window.localStorage.removeItem(inviteStorageKey);
+    } catch {
+      // O armazenamento local pode estar bloqueado pelo navegador; a sessão continua funcionando.
+    }
+  }
+
+  async function refreshStoredInvites() {
+    const stored = readStoredInvites().filter((item) => {
+      const expiry = new Date(item.expiresAt).getTime();
+      return Number.isFinite(expiry) && expiry > Date.now();
+    });
+    if (!stored.length) {
+      setInvite(null);
+      setBulkInvite(null);
+      writeStoredInvites([]);
+      return;
+    }
+    const checked = await Promise.all(stored.map(async (item) => {
+      try {
+        const response = await apiFetch(`/api/invites?code=${encodeURIComponent(item.code)}`, { cache: "no-store" });
+        const data = await response.json() as { active?: boolean; invite?: Partial<InviteLink> | null };
+        if (!response.ok || !data.active) return null;
+        return { ...item, ...(data.invite ?? {}) };
+      } catch {
+        return item;
+      }
+    }));
+    const active = checked.filter((item): item is InviteLink => Boolean(item));
+    writeStoredInvites(active);
+    setInvite(active.filter((item) => item.kind === "single").sort((a, b) => b.id - a.id)[0] ?? null);
+    setBulkInvite(active.filter((item) => item.kind === "bulk").sort((a, b) => b.id - a.id)[0] ?? null);
+  }
+
+  useEffect(() => {
+    let active = true;
+    const refresh = () => { if (active) void refreshStoredInvites(); };
+    refresh();
+    const timer = window.setInterval(refresh, 30_000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [operator.id]);
 
   const firstName = operator.name.split(" ")[0] || "Operador";
   const title = view === "register" ? "Novo cadastro" : view === "account" ? "Minha conta" : view === "operators" ? "Operadores" : view === "records" ? "Cadastros" : view === "alerts" ? "Alertas operacionais" : "Consulta de pessoas";
