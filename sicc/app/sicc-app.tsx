@@ -371,9 +371,14 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
   const [factionAffiliated, setFactionAffiliated] = useState(false);
   const [factionChoice, setFactionChoice] = useState("");
   const [newFactionName, setNewFactionName] = useState("");
-  const [invite, setInvite] = useState<{ code: string; expiresAt: string; link: string } | null>(null);
+  type InviteLink = { id: number; code: string; expiresAt: string; link: string; kind: "single" | "bulk"; revokedAt?: string | null; useCount?: number };
+  const [invite, setInvite] = useState<InviteLink | null>(null);
   const [inviteCopyStatus, setInviteCopyStatus] = useState<"idle" | "copied" | "error">("idle");
   const [inviteGenerating, setInviteGenerating] = useState(false);
+  const [bulkInvite, setBulkInvite] = useState<InviteLink | null>(null);
+  const [bulkInviteCopyStatus, setBulkInviteCopyStatus] = useState<"idle" | "copied" | "error">("idle");
+  const [bulkInviteGenerating, setBulkInviteGenerating] = useState(false);
+  const [bulkInviteConfirm, setBulkInviteConfirm] = useState(false);
   const [logoutConfirm, setLogoutConfirm] = useState(false);
 
   const firstName = operator.name.split(" ")[0] || "Operador";
@@ -412,41 +417,59 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
     setFactions(data.factions ?? []);
   }
 
-  async function createInvite() {
-    setLoading(true); setInviteGenerating(true); setMessage("");
+  async function createInvite(kind: "single" | "bulk" = "single") {
+    setLoading(true);
+    if (kind === "bulk") setBulkInviteGenerating(true);
+    else setInviteGenerating(true);
+    setMessage("");
     const controller = new AbortController();
-    const timeout = window.setTimeout(() => controller.abort(), 15000);
+    const timeout = window.setTimeout(() => controller.abort(), 30_000);
     try {
-      const response = await apiFetch("/api/invites", { method: "POST", signal: controller.signal, cache: "no-store" });
-      let data: { code?: string; expiresAt?: string; error?: string } = {};
-      try { data = await response.json() as { code?: string; expiresAt?: string; error?: string }; } catch { /* resposta não JSON */ }
-      if (!response.ok || !data.code || !data.expiresAt) {
+      const response = await apiFetch("/api/invites", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ kind }), signal: controller.signal, cache: "no-store" });
+      let data: { id?: number; code?: string; expiresAt?: string; kind?: "single" | "bulk"; error?: string } = {};
+      try { data = await response.json() as typeof data; } catch { /* resposta não JSON */ }
+      if (!response.ok || !data.id || !data.code || !data.expiresAt) {
         setMessage(data.error ?? "Não foi possível gerar o link de convite.");
         return;
       }
-      const link = `${window.location.origin}/?convite=${encodeURIComponent(data.code)}`;
-      setInvite({ code: data.code, expiresAt: data.expiresAt, link });
-      setInviteCopyStatus("idle");
+      const generated: InviteLink = { id: data.id, code: data.code, expiresAt: data.expiresAt, link: `${window.location.origin}/?convite=${encodeURIComponent(data.code)}`, kind: data.kind ?? kind };
+      if (kind === "bulk") { setBulkInvite(generated); setBulkInviteCopyStatus("idle"); }
+      else { setInvite(generated); setInviteCopyStatus("idle"); }
     } catch (error) {
       setMessage(error instanceof DOMException && error.name === "AbortError" ? "A geração do convite demorou demais. Tente novamente." : "Não foi possível gerar o link de convite.");
     } finally {
       window.clearTimeout(timeout);
       setLoading(false);
-      setInviteGenerating(false);
+      if (kind === "bulk") setBulkInviteGenerating(false);
+      else setInviteGenerating(false);
     }
   }
-
-  async function copyInviteLink() {
-    if (!invite) return;
+  async function copyInviteLink(target: "single" | "bulk" = "single") {
+    const selectedInvite = target === "bulk" ? bulkInvite : invite;
+    if (!selectedInvite) return;
     try {
-      await navigator.clipboard.writeText(invite.link);
-      setInviteCopyStatus("copied");
-      window.setTimeout(() => setInviteCopyStatus("idle"), 2500);
+      await navigator.clipboard.writeText(selectedInvite.link);
+      if (target === "bulk") { setBulkInviteCopyStatus("copied"); window.setTimeout(() => setBulkInviteCopyStatus("idle"), 2500); }
+      else { setInviteCopyStatus("copied"); window.setTimeout(() => setInviteCopyStatus("idle"), 2500); }
     } catch {
-      setInviteCopyStatus("error");
+      if (target === "bulk") setBulkInviteCopyStatus("error");
+      else setInviteCopyStatus("error");
     }
   }
 
+  async function revokeBulkInvite() {
+    if (!bulkInvite) return;
+    setLoading(true);
+    try {
+      const response = await apiFetch(`/api/invites/${bulkInvite.id}`, { method: "PATCH" });
+      const data = await response.json() as { error?: string };
+      if (!response.ok) { setMessage(data.error ?? "Não foi possível revogar o link."); return; }
+      setBulkInvite((current) => current ? { ...current, revokedAt: new Date().toISOString() } : current);
+      setMessage("Link reutilizável revogado.");
+    } catch {
+      setMessage("Não foi possível revogar o link. Verifique sua conexão.");
+    } finally { setLoading(false); }
+  }
   async function search(event?: FormEvent) {
     event?.preventDefault();
     const clean = query.trim();
@@ -871,8 +894,9 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
               <div><dt>Auditoria</dt><dd>Consultas e alterações registradas</dd></div>
             </dl>
             <div className="warning"><b>Uso pessoal e intransferível</b><small>As ações realizadas no sistema ficam vinculadas a este usuário.</small></div>
-            <div className="invite-panel"><div><b>Convidar operador</b><small>O link vale por 1 hora e permite um único cadastro.</small></div><button className="secondary" disabled={loading || inviteGenerating} onClick={() => void createInvite()}>{inviteGenerating ? <><span className="mini-loader" aria-hidden="true" /> Gerando link…</> : "Gerar link"}</button>{invite && <div className="invite-code"><strong>Link pronto</strong><small>Expira em {formatDate(invite.expiresAt)}</small><button onClick={() => void copyInviteLink()}>{inviteCopyStatus === "copied" ? "Copiado ✓" : "Copiar link"}</button><code>{invite.link}</code>{inviteCopyStatus === "copied" && <span className="copy-status success">Link copiado.</span>}{inviteCopyStatus === "error" && <span className="copy-status error">Não foi possível copiar. Selecione o link manualmente.</span>}</div>}</div>
-            <button className="logout-button" onClick={() => setLogoutConfirm(true)}>Sair da conta</button>
+            <div className="invite-panel"><div><b>Convidar operador</b><small>O link expira em 7 dias e permite um único cadastro.</small></div><button className="secondary" disabled={loading || inviteGenerating || bulkInviteGenerating} onClick={() => void createInvite("single")}>{inviteGenerating ? <><span className="mini-loader" aria-hidden="true" /> Gerando link…</> : "Gerar link"}</button>{invite && <div className="invite-code"><strong>Link de uso único</strong><small>Expira em {formatDate(invite.expiresAt)}</small><button onClick={() => void copyInviteLink()}>{inviteCopyStatus === "copied" ? "Copiado ✓" : "Copiar link"}</button><code>{invite.link}</code>{inviteCopyStatus === "copied" && <span className="copy-status success">Link copiado.</span>}{inviteCopyStatus === "error" && <span className="copy-status error">Não foi possível copiar. Selecione o link manualmente.</span>}</div>}</div>
+             {operator.role === "admin" && <div className="invite-panel bulk-invite-panel"><div><b>Link para vários cadastros</b><small>Exclusivo do administrador. Pode ser usado por várias pessoas até expirar ou ser revogado.</small></div><button className="secondary" disabled={loading || inviteGenerating || bulkInviteGenerating} onClick={() => void createInvite("bulk")}>{bulkInviteGenerating ? <><span className="mini-loader" aria-hidden="true" /> Gerando link…</> : "Gerar link reutilizável"}</button>{bulkInvite && <div className="invite-code"><strong>{bulkInvite.revokedAt ? "Link revogado" : "Link reutilizável ativo"}</strong><small>Expira em {formatDate(bulkInvite.expiresAt)}</small><button disabled={Boolean(bulkInvite.revokedAt)} onClick={() => void copyInviteLink("bulk")}>{bulkInviteCopyStatus === "copied" ? "Copiado ✓" : "Copiar link"}</button><code>{bulkInvite.link}</code>{!bulkInvite.revokedAt && <button type="button" className="danger-outline" onClick={() => setBulkInviteConfirm(true)}>Revogar link</button>}{bulkInviteCopyStatus === "copied" && <span className="copy-status success">Link copiado.</span>}{bulkInviteCopyStatus === "error" && <span className="copy-status error">Não foi possível copiar. Selecione o link manualmente.</span>}</div>}{bulkInviteConfirm && <ConfirmModal title="Revogar link reutilizável?" message="Novos cadastros não poderão mais usar este link. Cadastros já concluídos permanecem ativos." confirmLabel="Revogar link" onCancel={() => setBulkInviteConfirm(false)} onConfirm={async () => { setBulkInviteConfirm(false); await revokeBulkInvite(); }} />}</div>}
+             <button className="logout-button" onClick={() => setLogoutConfirm(true)}>Sair da conta</button>
           </section>
         )}
 
