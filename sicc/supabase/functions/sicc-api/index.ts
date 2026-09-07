@@ -316,6 +316,31 @@ async function handleData(path: string, req: Request) {
     const { data, error } = await api.from("factions").insert({ name: clean(String(body.name ?? "")) }).select("id,name").single();
     return error ? fail(error.message, 400) : json({ faction: data });
   }
+  if (path === "/invites" && req.method === "GET") {
+    const code = clean(new URL(req.url).searchParams.get("code"));
+    if (!code) return json({ active: false });
+    const { data, error } = await api.from("operator_invites")
+      .select("id,expires_at,used_at,invite_type,revoked_at,use_count")
+      .eq("created_by", user.id)
+      .eq("code_hash", await sha256(code))
+      .maybeSingle();
+    if (error) return fail(error.message, 500);
+    const active = Boolean(data)
+      && new Date(data.expires_at).getTime() > Date.now()
+      && data.revoked_at === null
+      && (data.invite_type === "bulk" || data.used_at === null);
+    return json({
+      active,
+      invite: data ? {
+        id: data.id,
+        kind: data.invite_type,
+        expiresAt: data.expires_at,
+        usedAt: data.used_at,
+        revokedAt: data.revoked_at,
+        useCount: data.use_count ?? 0,
+      } : null,
+    });
+  }
   if (path === "/invites" && req.method === "POST") {
     const body = await bodyJson(req);
     const kind = String(body.kind ?? "single").toLowerCase() === "bulk" ? "bulk" : "single";
