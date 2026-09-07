@@ -246,6 +246,8 @@ function initials(name: string) {
   return name.split(" ").filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toUpperCase();
 }
 
+function rankLabel(rank: string | null | undefined) { const value = (rank ?? "").trim(); const normalized = value.toLowerCase(); const map: Record<string,string> = {"aluno soldado":"AL SD","soldado":"SD","cabo":"CB","3º sargento":"3º SGT","3o sargento":"3º SGT","2º sargento":"2º SGT","2o sargento":"2º SGT","1º sargento":"1º SGT","1o sargento":"1º SGT","subtenente":"ST","cadete":"CAD","aspirante a oficial":"ASP OF","2º tenente":"2º TEN","1º tenente":"1º TEN","capitão":"CAP","major":"MAJ","tenente-coronel":"TEN CEL","coronel":"CEL"}; return map[normalized] ?? value; }
+
 function maskCpf(cpf: string) {
   const digits = cpf.replace(/\D/g, "");
   if (digits.length !== 11) return cpf;
@@ -948,7 +950,7 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
 
         {view === "account" && (
           <section className="account-card panel">
-            <div className="account-identity"><span className="account-avatar">{initials(operator.name)}</span><div><small>OPERADOR AUTENTICADO</small><h2>{operator.rank ? `${operator.rank} ${operator.warName}` : operator.name}</h2><p>{operator.email}</p></div></div>
+            <div className="account-identity"><span className="account-avatar">{initials(operator.name)}</span><div><small>OPERADOR AUTENTICADO</small><h2>{operator.rank ? `${rankLabel(operator.rank)} ${operator.warName}` : operator.name}</h2><p>{operator.email}</p></div></div>
             <dl>
               <div><dt>Perfil de acesso</dt><dd>{operator.role === "admin" ? "Administrador" : "Operador autorizado"}</dd></div>
               <div><dt>Ambiente</dt><dd>SICC Beta · interno</dd></div>
@@ -1390,7 +1392,7 @@ function AdminList({ kind }: { kind: "operators" | "records" }) {
   return <section className="panel admin-list"><div className="panel-title"><h2>{kind === "operators" ? "Contas cadastradas" : "Pessoas cadastradas"}</h2><span>{total} no total</span></div>
     {loading ? <p>Carregando…</p> : <div className="admin-rows">{rows.map((row) => {
       const displayName = kind === "operators"
-        ? [row.rank, row.warName || row.name].filter((value) => Boolean(value && value.trim())).join(" ") || "Nome não informado"
+        ? [rankLabel(row.rank), row.warName || row.name].filter((value) => Boolean(value && value.trim())).join(" ") || "Nome não informado"
         : row.name || "Nome não informado";
       const createdBy = row.createdByName || row.createdBy || "não informado";
       return <article key={row.id}><div><b>{displayName}</b><small>{kind === "operators" ? `${row.role === "admin" ? "Administrador" : "Operador"}${row.email ? ` · ${row.email}` : ""}${row.invitedBy ? ` · convidado por ${row.invitedBy}` : ""}` : `${maskCpf(row.cpf ?? "")} · cadastrado por ${createdBy}`}</small></div>{!(kind === "operators" && row.role === "admin") && <button onClick={() => setConfirmRow(row)}>Apagar</button>}</article>;
