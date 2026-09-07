@@ -432,7 +432,12 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
         setMessage(data.error ?? "Não foi possível gerar o link de convite.");
         return;
       }
-      const generated: InviteLink = { id: data.id, code: data.code, expiresAt: data.expiresAt, link: `${window.location.origin}/?convite=${encodeURIComponent(data.code)}`, kind: data.kind ?? kind };
+      // GitHub Pages publica o app em /SICC/. Usar apenas a origem gera um
+      // link para 4quarenta.github.io/, que não contém esta aplicação e retorna 404.
+      const appPath = window.location.pathname.endsWith("/") ? window.location.pathname : `${window.location.pathname}/`;
+      const inviteUrl = new URL(appPath, window.location.origin);
+      inviteUrl.searchParams.set("convite", data.code);
+      const generated: InviteLink = { id: data.id, code: data.code, expiresAt: data.expiresAt, link: inviteUrl.toString(), kind: data.kind ?? kind };
       if (kind === "bulk") { setBulkInvite(generated); setBulkInviteCopyStatus("idle"); }
       else { setInvite(generated); setInviteCopyStatus("idle"); }
     } catch (error) {
