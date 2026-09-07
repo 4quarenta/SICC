@@ -1554,7 +1554,8 @@ function EditPersonModal({
       const editFaceFiles = form.getAll("facePhotos").filter((item): item is File => item instanceof File && item.size > 0);
       const editTattooFiles = form.getAll("tattoos").filter((item): item is File => item instanceof File && item.size > 0);
       // A edição aceita qualquer imagem sem exigir detecção facial.
-      const editTattooHashes = await Promise.all(editTattooFiles.map(safeVisualSignature));
+      // A busca visual está desabilitada; não bloqueie o salvamento tentando gerar assinaturas locais.
+      const editTattooHashes: string[] = [];
       form.set("facePhotoHashes", JSON.stringify([]));
       form.set("faceEmbeddings", JSON.stringify([]));
       form.set("tattooHashes", JSON.stringify(editTattooHashes));
