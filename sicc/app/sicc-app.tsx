@@ -389,6 +389,7 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
   const [bulkInviteGenerating, setBulkInviteGenerating] = useState(false);
   const [bulkInviteConfirm, setBulkInviteConfirm] = useState(false);
   const [activeInvites, setActiveInvites] = useState<InviteLink[]>([]);
+  const [totalPeopleCount, setTotalPeopleCount] = useState<number | null>(null);
   const [logoutConfirm, setLogoutConfirm] = useState(false);
 
   const inviteStorageKey = `sicc:invite-links:${operator.id}`;
@@ -459,6 +460,17 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
     refresh();
     const timer = window.setInterval(refresh, 30_000);
     return () => { active = false; window.clearInterval(timer); };
+  }, [operator.id]);
+
+  useEffect(() => {
+    let active = true;
+    void apiFetch("/api/people?count=1", { cache: "no-store" })
+      .then(async (response) => {
+        const data = await response.json() as { total?: number };
+        if (active && response.ok) setTotalPeopleCount(Number(data.total ?? 0));
+      })
+      .catch(() => {});
+    return () => { active = false; };
   }, [operator.id]);
 
   const firstName = operator.name.split(" ")[0] || "Operador";
@@ -583,13 +595,14 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
     const timeout = window.setTimeout(() => controller.abort(), 15000);
     try {
       const response = await apiFetch(`/api/people?q=${encodeURIComponent(clean)}`, { signal: controller.signal, cache: "no-store" });
-      let data: { people?: Person[]; error?: string } = {};
-      try { data = await response.json() as { people?: Person[]; error?: string }; } catch { /* resposta não JSON do servidor */ }
+      let data: { people?: Person[]; total?: number; error?: string } = {};
+      try { data = await response.json() as { people?: Person[]; total?: number; error?: string }; } catch { /* resposta não JSON do servidor */ }
       if (!response.ok) {
         setMessage(data.error ?? "Não foi possível realizar a consulta.");
         return;
       }
       const localPeople = data.people ?? [];
+      if (typeof data.total === "number") setTotalPeopleCount(data.total);
       setSubmittedQuery(clean);
       setResults(localPeople);
       setView("search");
@@ -933,9 +946,9 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
             </div>
             {searchMode === "text" ? (
               <form onSubmit={(event) => event.preventDefault()}>
-                <label htmlFor="query">Nome, CPF ou alcunha</label>
+                <label htmlFor="query">Nome, CPF, alcunha ou nome da mãe</label>
                 <div className="search-row">
-                  <div className="input-wrap"><span>⌕</span><input id="query" value={query} onChange={(event) => { setQuery(event.target.value); setSubmittedQuery(""); }} placeholder="Ex.: João da Silva, 000... ou Baixinho" /></div>
+                  <div className="input-wrap"><span>⌕</span><input id="query" value={query} onChange={(event) => { setQuery(event.target.value); setSubmittedQuery(""); }} placeholder="Ex.: João da Silva, 000..., Baixinho ou Maria da Silva" /></div>
                   <button type="button" className="primary" disabled={loading} onClick={() => void search()}>{loading ? "Consultando…" : "Consultar"}</button>
                 </div>
               </form>
@@ -949,6 +962,7 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
                 <div className="biometric-note"><b>Busca visual por similaridade:</b> os candidatos são ordenados por semelhança visual aproximada. O resultado é apenas apoio à conferência e não confirma identidade.</div>
               </form>
             )}
+            <small className="people-total">Pessoas cadastradas no SICC: {totalPeopleCount === null ? "…" : totalPeopleCount}</small>
             <small>▣ Toda consulta é vinculada ao operador e registrada para auditoria.</small>
           </section>
         )}
