@@ -419,7 +419,10 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
         const response = await apiFetch(`/api/invites?code=${encodeURIComponent(item.code)}`, { cache: "no-store" });
         const data = await response.json() as { active?: boolean; invite?: Partial<InviteLink> | null };
         if (!response.ok || !data.active) return null;
-        return { ...item, ...(data.invite ?? {}) };
+        const appPath = window.location.pathname.endsWith("/") ? window.location.pathname : `${window.location.pathname}/`;
+        const inviteUrl = new URL(appPath, window.location.origin);
+        inviteUrl.searchParams.set("convite", item.code);
+        return { ...item, ...(data.invite ?? {}), link: inviteUrl.toString() };
       } catch {
         return item;
       }
