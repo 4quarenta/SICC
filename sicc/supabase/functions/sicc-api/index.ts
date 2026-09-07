@@ -251,6 +251,15 @@ async function handleAuth(path: string, req: Request) {
     if (loginError || !session.session) return fail("Conta criada, mas não foi possível iniciar a sessão.", 500);
     return json({ ...operatorPayload(created.user, { user_id: created.user.id, war_name: clean(String(body.warName ?? "")), rank: clean(String(body.rank ?? "")), role: "admin", invited_by: null }), access_token: session.session.access_token, refresh_token: session.session.refresh_token, expires_in: session.session.expires_in });
   }
+  if (path === "/auth/invite-status" && req.method === "GET") {
+    const code = clean(new URL(req.url).searchParams.get("code"));
+    const { data } = await api.from("operator_invites").select("expires_at,used_at,revoked_at,invite_type").eq("code_hash", await sha256(code)).maybeSingle();
+    if (!data) return json({ valid: false, reason: "invalid" });
+    if (data.revoked_at) return json({ valid: false, reason: "revoked" });
+    if (new Date(data.expires_at).getTime() <= Date.now()) return json({ valid: false, reason: "expired" });
+    if (data.invite_type !== "bulk" && data.used_at) return json({ valid: false, reason: "used" });
+    return json({ valid: true, kind: data.invite_type, expiresAt: data.expires_at });
+  }
   if (path === "/auth/register" && req.method === "POST") {
     const body = await bodyJson(req);
     const invite = clean(String(body.invite ?? ""));
@@ -354,7 +363,7 @@ async function handleData(path: string, req: Request) {
     const kind = String(body.kind ?? "single").toLowerCase() === "bulk" ? "bulk" : "single";
     if (kind === "bulk" && current.role !== "admin") return fail("Somente administradores podem criar convites reutilizáveis.", 403);
     const code = randomCode();
-    const expiresAt = new Date(Date.now() + (kind === "bulk" ? 30 : 7) * 24 * 60 * 60 * 1000).toISOString();
+    const expiresAt = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
     const { data, error } = await api.from("operator_invites")
       .insert({ code_hash: await sha256(code), code, created_by: user.id, expires_at: expiresAt, invite_type: kind, use_count: 0 })
       .select("id")
