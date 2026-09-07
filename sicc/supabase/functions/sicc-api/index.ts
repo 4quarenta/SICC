@@ -435,12 +435,72 @@ async function handleData(path: string, req: Request) {
     return error ? fail(error.message, 400) : json({ deleted: true });
   }
   if (path === "/admin/records" && req.method === "GET") {
-    const { data, error, count } = await api.from("people").select("id,full_name,cpf,status,created_at", { count: "exact" }).order("created_at", { ascending: false }).limit(50);
-    return error ? fail(error.message, 500) : json({ rows: data ?? [], total: count ?? 0 });
+    const page = Math.max(1, Number(new URL(req.url).searchParams.get("page") ?? 1) || 1);
+    const from = (page - 1) * 10;
+    const to = from + 9;
+    const { data, error, count } = await api.from("people")
+      .select("id,full_name,cpf,status,created_by,created_at", { count: "exact" })
+      .order("created_at", { ascending: false })
+      .range(from, to);
+    if (error) return fail(error.message, 500);
+    const creatorIds = [...new Set((data ?? []).map((row) => row.created_by).filter(Boolean))] as string[];
+    const [{ data: creatorProfiles, error: profilesError }, usersResult] = await Promise.all([
+      creatorIds.length ? api.from("operator_profiles").select("user_id,war_name,rank").in("user_id", creatorIds) : Promise.resolve({ data: [], error: null }),
+      api.auth.admin.listUsers({ page: 1, perPage: 1000 }),
+    ]);
+    if (profilesError || usersResult.error) return fail(profilesError?.message ?? usersResult.error?.message ?? "Não foi possível identificar os responsáveis pelos cadastros.", 500);
+    const profileById = new Map((creatorProfiles ?? []).map((row) => [row.user_id as string, row]));
+    const userById = new Map((usersResult.data?.users ?? []).map((item) => [item.id, item]));
+    const rows = (data ?? []).map((row) => {
+      const creator = profileById.get(row.created_by as string);
+      const authUser = userById.get(row.created_by as string);
+      const creatorName = creator ? [creator.rank, creator.war_name].filter(Boolean).join(" ") : (authUser?.email ?? null);
+      return {
+        id: row.id,
+        name: row.full_name,
+        cpf: row.cpf,
+        status: row.status,
+        createdAt: row.created_at,
+        createdBy: creatorName,
+        createdByName: creatorName,
+      };
+    });
+    return json({ rows, total: count ?? 0 });
   }
   if (path === "/admin/operators" && req.method === "GET") {
-    const { data, error } = await api.from("operator_profiles").select("*").order("created_at", { ascending: false });
-    return error ? fail(error.message, 500) : json({ rows: data ?? [], total: data?.length ?? 0 });
+    const page = Math.max(1, Number(new URL(req.url).searchParams.get("page") ?? 1) || 1);
+    const from = (page - 1) * 10;
+    const to = from + 9;
+    const { data, error, count } = await api.from("operator_profiles")
+      .select("user_id,war_name,rank,role,invited_by,created_at", { count: "exact" })
+      .order("created_at", { ascending: false })
+      .range(from, to);
+    if (error) return fail(error.message, 500);
+    const profiles = data ?? [];
+    const invitedIds = [...new Set(profiles.map((row) => row.invited_by).filter(Boolean))] as string[];
+    const [{ data: invitedProfiles, error: invitedError }, usersResult] = await Promise.all([
+      invitedIds.length ? api.from("operator_profiles").select("user_id,war_name,rank").in("user_id", invitedIds) : Promise.resolve({ data: [], error: null }),
+      api.auth.admin.listUsers({ page: 1, perPage: 1000 }),
+    ]);
+    if (invitedError || usersResult.error) return fail(invitedError?.message ?? usersResult.error?.message ?? "Não foi possível carregar os operadores.", 500);
+    const invitedById = new Map((invitedProfiles ?? []).map((row) => [row.user_id as string, row]));
+    const userById = new Map((usersResult.data?.users ?? []).map((item) => [item.id, item]));
+    const rows = profiles.map((row) => {
+      const user = userById.get(row.user_id as string);
+      const inviter = row.invited_by ? invitedById.get(row.invited_by as string) : null;
+      const invitedBy = inviter ? [inviter.rank, inviter.war_name].filter(Boolean).join(" ") : (row.invited_by ? (userById.get(row.invited_by as string)?.email ?? null) : null);
+      return {
+        id: row.user_id,
+        name: row.war_name,
+        warName: row.war_name,
+        rank: row.rank,
+        email: user?.email ?? "",
+        role: row.role,
+        invitedBy,
+        createdAt: row.created_at,
+      };
+    });
+    return json({ rows, total: count ?? 0 });
   }
   if (path === "/admin/operators" && req.method === "DELETE") {
     const id = new URL(req.url).searchParams.get("id");
