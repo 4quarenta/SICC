@@ -664,23 +664,17 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
         45_000,
         "IMAGE_PROCESSING_TIMEOUT",
       );
-      const [faceEmbeddings, tattooHashes] = await withTimeout(
-        Promise.all([
-          Promise.all(faceFiles.map(safeFaceEmbedding)),
-          Promise.all(compactedTattooFiles.map(safeVisualSignature)),
-        ]),
+      // A busca facial está desabilitada. As fotos são apenas armazenadas no cadastro,
+      // portanto não bloqueamos o salvamento por ausência de rosto detectável.
+      const tattooHashes = await withTimeout(
+        Promise.all(compactedTattooFiles.map(safeVisualSignature)),
         45_000,
-        "FACE_PROCESSING_TIMEOUT",
+        "IMAGE_PROCESSING_TIMEOUT",
       );
-      if (faceEmbeddings.some((embedding) => !embedding)) {
-        showRegisterNotice("error", "Não foi possível detectar um rosto em uma das fotos. Use imagens com apenas uma pessoa visível e o rosto nítido.");
-        setLoading(false);
-        return;
-      }
       form.delete("facePhotos");
       form.delete("tattoos");
       form.set("facePhotoHashes", JSON.stringify([]));
-      form.set("faceEmbeddings", JSON.stringify(faceEmbeddings));
+      form.set("faceEmbeddings", JSON.stringify([]));
       form.set("tattooHashes", JSON.stringify(tattooHashes));
       compactedFaceFiles.forEach((file) => form.append("facePhotos", file));
       compactedTattooFiles.forEach((file) => form.append("tattoos", file));
@@ -926,7 +920,7 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
 
             <FormSection title="Imagens de identificação" subtitle="As imagens serão compactadas automaticamente antes do envio">
               <div className="photo-grid">
-                <div className="photo-record"><PhotoInput name="facePhotos" label="Fotos do rosto" required multiple /><label>Data das fotos *<input name="facePhotoDate" type="date" defaultValue={currentBrasiliaDate()} required /></label></div>
+                <div className="photo-record"><PhotoInput name="facePhotos" label="Fotos do rosto" multiple /><label>Data das fotos *<input name="facePhotoDate" type="date" defaultValue={currentBrasiliaDate()} required /></label></div>
                 <div className="photo-record"><PhotoInput name="tattoos" label="Fotos de tatuagens" multiple /><label>Data das fotos<input name="tattooPhotoDate" type="date" defaultValue={currentBrasiliaDate()} /></label></div>
               </div>
             </FormSection>
@@ -1434,17 +1428,10 @@ function EditPersonModal({
     const form = new FormData(event.currentTarget);
     const editFaceFiles = form.getAll("facePhotos").filter((item): item is File => item instanceof File && item.size > 0);
     const editTattooFiles = form.getAll("tattoos").filter((item): item is File => item instanceof File && item.size > 0);
-    const [editFaceEmbeddings, editTattooHashes] = await Promise.all([
-      Promise.all(editFaceFiles.map(safeFaceEmbedding)),
-      Promise.all(editTattooFiles.map(safeVisualSignature)),
-    ]);
-    if (editFaceEmbeddings.some((embedding) => !embedding)) {
-      onLoading(false);
-      onMessage("Não foi possível detectar um rosto em uma das novas fotos. Use imagens com apenas uma pessoa visível e o rosto nítido.");
-      return;
-    }
+    // A edição também aceita qualquer imagem sem exigir detecção facial.
+    const editTattooHashes = await Promise.all(editTattooFiles.map(safeVisualSignature));
     form.set("facePhotoHashes", JSON.stringify([]));
-    form.set("faceEmbeddings", JSON.stringify(editFaceEmbeddings));
+    form.set("faceEmbeddings", JSON.stringify([]));
     form.set("tattooHashes", JSON.stringify(editTattooHashes));
     form.set("removeMediaIds", JSON.stringify(removedMediaIds));
     form.set("addresses", JSON.stringify(editAddresses.filter((item) => item.address.trim())));
