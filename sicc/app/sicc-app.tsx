@@ -1545,7 +1545,7 @@ function EditPersonModal({
     try {
       const form = new FormData(event.currentTarget);
       const fullName = String(form.get("fullName") ?? "").trim();
-      const cpfDigits = String(form.get("cpf") ?? "").replace(/\\D/g, "");
+      const cpfDigits = String(form.get("cpf") ?? "").replace(/\D/g, "");
       if (fullName.length < 3) throw new Error("Informe o nome completo.");
       if (cpfDigits.length !== 11) throw new Error("Informe um CPF válido com 11 dígitos.");
       if (editFactionAffiliated && !editFactionChoice) throw new Error("Selecione uma facção ou escolha adicionar uma nova.");
