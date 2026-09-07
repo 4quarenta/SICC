@@ -255,14 +255,16 @@ async function handleAuth(path: string, req: Request) {
     const body = await bodyJson(req);
     const invite = clean(String(body.invite ?? ""));
     const now = new Date().toISOString();
-    const { data: invitation } = await api.from("operator_invites")
-      .select("id,created_by,invite_type,use_count")
-      .eq("code_hash", await sha256(invite))
-      .is("revoked_at", null)
-      .gt("expires_at", now)
-      .or("invite_type.eq.bulk,used_at.is.null")
-      .maybeSingle();
-    if (!invitation) return fail("Código de convite inválido, revogado ou expirado.", 400);
+    const { data: invitationRows, error: invitationError } = await api.from("operator_invites")
+      .select("id,created_by,invite_type,use_count,used_at,revoked_at,expires_at")
+      .eq("code_hash", await sha256(invite));
+    if (invitationError) return fail(invitationError.message, 500);
+    const invitation = (invitationRows ?? []).find((row) =>
+      row.revoked_at === null
+      && new Date(row.expires_at).getTime() > Date.now()
+      && (row.invite_type === "bulk" || row.used_at === null)
+    );
+    if (!invitation) return fail("Código de convite inválido, revogado, expirado ou já utilizado.", 400);
     const { data: created, error } = await api.auth.admin.createUser({ email: clean(String(body.email ?? "")), password: String(body.password ?? ""), email_confirm: true });
     if (error || !created.user) return fail(error?.message ?? "Não foi possível criar a conta.", 400);
     const { error: profileError } = await api.from("operator_profiles").insert({ user_id: created.user.id, war_name: clean(String(body.warName ?? "")), rank: clean(String(body.rank ?? "")), role: "operator", invited_by: invitation.created_by });
