@@ -22,6 +22,7 @@ export const ALERT_CATEGORIES: AlertCategory[] = [
   { key: "pessoa-desaparecida", label: "Pessoa Desaparecida", priority: "media", description: "Pessoa sem paradeiro conhecido, com dados do último avistamento." },
   { key: "foragido-mandado", label: "Foragido / Mandado em Aberto", priority: "baixa", description: "Pessoa procurada pela Justiça ou em descumprimento de medida judicial." },
   { key: "informacao-apuracao", label: "Informação em Apuração", priority: "baixa", description: "Dado ainda não confirmado, de origem diversa, que requer verificação." },
+  { key: "atitude-suspeita", label: "Atitude Suspeita", priority: "media", description: "Indivíduo em atitude suspeita para averiguação da guarnição no local informado." },
 ];
 
 export const ALERT_PRIORITY_LABEL: Record<AlertPriority, string> = {
