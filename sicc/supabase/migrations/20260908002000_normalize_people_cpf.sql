@@ -1,8 +1,8 @@
 begin;
 
 update public.people
-set cpf = regexp_replace(cpf, '\\D', '', 'g')
-where cpf <> regexp_replace(cpf, '\\D', '', 'g');
+set cpf = regexp_replace(cpf, '\D', '', 'g')
+where cpf <> regexp_replace(cpf, '\D', '', 'g');
 
 alter table public.people
   drop constraint if exists people_cpf_digits_check;
