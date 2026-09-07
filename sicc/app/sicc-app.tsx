@@ -1535,35 +1535,51 @@ function EditPersonModal({
   const [mediaItems, setMediaItems] = useState<Media[]>(person.media ?? []);
   const [removedMediaIds, setRemovedMediaIds] = useState<number[]>([]);
   const [mediaToRemove, setMediaToRemove] = useState<Media | null>(null);
+  const [editNotice, setEditNotice] = useState("");
 
   async function submitEdit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     onLoading(true);
     onMessage("");
-    const form = new FormData(event.currentTarget);
-    const editFaceFiles = form.getAll("facePhotos").filter((item): item is File => item instanceof File && item.size > 0);
-    const editTattooFiles = form.getAll("tattoos").filter((item): item is File => item instanceof File && item.size > 0);
-    // A edição também aceita qualquer imagem sem exigir detecção facial.
-    const editTattooHashes = await Promise.all(editTattooFiles.map(safeVisualSignature));
-    form.set("facePhotoHashes", JSON.stringify([]));
-    form.set("faceEmbeddings", JSON.stringify([]));
-    form.set("tattooHashes", JSON.stringify(editTattooHashes));
-    form.set("removeMediaIds", JSON.stringify(removedMediaIds));
-    form.set("addresses", JSON.stringify(editAddresses.filter((item) => item.address.trim())));
-    form.set("seizedObjects", JSON.stringify(editObjects.filter((item) => item.description.trim())));
-    form.set("factionAffiliated", editFactionAffiliated ? "yes" : "no");
-    if (editFactionAffiliated) {
-      if (editFactionChoice === "new") form.set("newFactionName", editNewFactionName);
-      else form.set("factionId", editFactionChoice);
+    setEditNotice("");
+    try {
+      const form = new FormData(event.currentTarget);
+      const editFaceFiles = form.getAll("facePhotos").filter((item): item is File => item instanceof File && item.size > 0);
+      const editTattooFiles = form.getAll("tattoos").filter((item): item is File => item instanceof File && item.size > 0);
+      // A edição aceita qualquer imagem sem exigir detecção facial.
+      const editTattooHashes = await Promise.all(editTattooFiles.map(safeVisualSignature));
+      form.set("facePhotoHashes", JSON.stringify([]));
+      form.set("faceEmbeddings", JSON.stringify([]));
+      form.set("tattooHashes", JSON.stringify(editTattooHashes));
+      form.set("removeMediaIds", JSON.stringify(removedMediaIds));
+      form.set("addresses", JSON.stringify(editAddresses.filter((item) => item.address.trim())));
+      form.set("seizedObjects", JSON.stringify(editObjects.filter((item) => item.description.trim())));
+      form.set("factionAffiliated", editFactionAffiliated ? "yes" : "no");
+      if (editFactionAffiliated) {
+        if (editFactionChoice === "new") form.set("newFactionName", editNewFactionName);
+        else form.set("factionId", editFactionChoice);
+      }
+      const response = await withTimeout(
+        apiFetch(`/api/people/${person.id}`, { method: "PUT", body: form }),
+        30000,
+        "A atualização demorou demais. Verifique sua conexão e tente novamente.",
+      );
+      let data: { person?: Person; error?: string } = {};
+      try { data = await response.json() as { person?: Person; error?: string }; } catch { /* resposta inválida */ }
+      if (!response.ok || !data.person) {
+        const errorMessage = data.error ?? "Não foi possível atualizar o cadastro.";
+        setEditNotice(errorMessage);
+        onMessage(errorMessage);
+        return;
+      }
+      onUpdated(data.person);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Não foi possível atualizar o cadastro.";
+      setEditNotice(errorMessage);
+      onMessage(errorMessage);
+    } finally {
+      onLoading(false);
     }
-    const response = await apiFetch(`/api/people/${person.id}`, { method: "PUT", body: form });
-    const data = (await response.json()) as { person?: Person; error?: string };
-    onLoading(false);
-    if (!response.ok || !data.person) {
-      onMessage(data.error ?? "Não foi possível atualizar o cadastro.");
-      return;
-    }
-    onUpdated(data.person);
   }
 
   return (
@@ -1649,6 +1665,7 @@ function EditPersonModal({
         </FormSection>
 
         <label className="wide notes-field">Observação geral<textarea name="notes" rows={4} defaultValue={person.notes ?? ""} /></label>
+        {editNotice && <div className="feedback modal-feedback" role="alert">{editNotice}</div>}
         <div className="form-actions edit-actions">
           <button type="button" className="secondary" onClick={onClose}>Cancelar</button>
           <button className="primary" disabled={loading}>{loading ? "Salvando…" : "Salvar alterações"}</button>
