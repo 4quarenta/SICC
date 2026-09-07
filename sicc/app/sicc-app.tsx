@@ -889,7 +889,8 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
   }
 
   function personUpdated(person: Person) {
-    setSelected(person);
+    // Fecha a ficha de edição sem reabrir o detalhe por cima da confirmação.
+    setSelected(null);
     setResults((items) => items.map((item) => item.id === person.id ? person : item));
     setEditPerson(null);
     setMessage("Dados atualizados e alteração registrada na auditoria.");
