@@ -52,6 +52,7 @@ const alertCategories: Record<string, { label: string; priority: "Baixa" | "Méd
   "pessoa-desaparecida": { label: "Pessoa Desaparecida", priority: "Média" },
   "foragido-mandado": { label: "Foragido / Mandado em Aberto", priority: "Baixa" },
   "informacao-apuracao": { label: "Informação em Apuração", priority: "Baixa" },
+  "atitude-suspeita": { label: "Atitude Suspeita", priority: "Média" },
 };
 
 function alertPayload(row: Record<string, unknown>, images: Array<Record<string, unknown>> = []) {
