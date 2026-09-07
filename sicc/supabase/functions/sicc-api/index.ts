@@ -23,6 +23,23 @@ function clean(value: FormDataEntryValue | string | null | undefined) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+async function resolveFactionId(form: FormData): Promise<{ id: number | null; error?: string }> {
+  if (clean(form.get("factionAffiliated")) !== "yes") return { id: null };
+  const choice = clean(form.get("factionId"));
+  if (choice === "new") {
+    const name = clean(form.get("newFactionName"));
+    if (!name) return { id: null, error: "Informe o nome da nova facção." };
+    const { data, error } = await api.from("factions").insert({ name }).select("id").single();
+    if (error || !data) return { id: null, error: error?.message ?? "Não foi possível criar a facção." };
+    return { id: data.id as number };
+  }
+  const id = Number(choice);
+  if (!Number.isInteger(id) || id <= 0) return { id: null, error: "Selecione uma facção válida." };
+  const { data, error } = await api.from("factions").select("id").eq("id", id).maybeSingle();
+  if (error || !data) return { id: null, error: error?.message ?? "A facção selecionada não existe." };
+  return { id };
+}
+
 async function bodyJson(req: Request) {
   try { return await req.json() as Record<string, unknown>; } catch { return {}; }
 }
@@ -396,20 +413,29 @@ async function handleData(path: string, req: Request) {
     let ids: number[] | undefined;
     if (Number.isFinite(id) && id > 0) ids = [id];
     else if (q) {
-      const [name, nickname, cpf] = await Promise.all([
+      const cpfQuery = q.replace(/\\D/g, "");
+      const [name, nickname, mother, cpf] = await Promise.all([
         api.from("people").select("id").ilike("full_name", `%${q}%`),
         api.from("people").select("id").ilike("nickname", `%${q}%`),
-        api.from("people").select("id").eq("cpf", q),
+        api.from("people").select("id").ilike("mother_name", `%${q}%`),
+        api.from("people").select("id").eq("cpf", cpfQuery || q),
       ]);
-      if (name.error || nickname.error || cpf.error) return fail("Não foi possível consultar os cadastros.", 500);
-      ids = [...new Set([...(name.data ?? []), ...(nickname.data ?? []), ...(cpf.data ?? [])].map((row) => row.id as number))];
+      if (name.error || nickname.error || mother.error || cpf.error) return fail("Não foi possível consultar os cadastros.", 500);
+      ids = [...new Set([...(name.data ?? []), ...(nickname.data ?? []), ...(mother.data ?? []), ...(cpf.data ?? [])].map((row) => row.id as number))];
     }
     return json({ people: await peopleRows(ids) });
   }
   if (path === "/people" && req.method === "POST") {
     const form = await req.formData();
+    const cpf = clean(form.get("cpf")).replace(/\\D/g, "");
+    if (cpf.length !== 11) return fail("Informe um CPF válido com 11 dígitos.", 400);
+    const { data: existingCpf, error: cpfError } = await api.from("people").select("id,full_name").eq("cpf", cpf).maybeSingle();
+    if (cpfError) return fail("Não foi possível validar o CPF.", 500);
+    if (existingCpf) return fail(`Já existe um cadastro para este CPF: ${existingCpf.full_name}.`, 409);
+    const faction = await resolveFactionId(form);
+    if (faction.error) return fail(faction.error, 400);
     const now = new Date().toISOString();
-    const { data: person, error } = await api.from("people").insert({ full_name: clean(form.get("fullName")), nickname: clean(form.get("nickname")) || null, cpf: clean(form.get("cpf")), birth_date: clean(form.get("birthDate")) || null, mother_name: clean(form.get("motherName")) || null, city: clean(form.get("city")) || null, state: clean(form.get("state")) || null, status: clean(form.get("status")) === "dead" ? "dead" : "alive", custody_status: clean(form.get("custodyStatus")) === "detained" ? "detained" : "free", notes: clean(form.get("notes")) || null, faction_id: Number(form.get("factionId")) || null, created_by: user.id, created_at: now, updated_at: now }).select("id").single();
+    const { data: person, error } = await api.from("people").insert({ full_name: clean(form.get("fullName")), nickname: clean(form.get("nickname")) || null, cpf, birth_date: clean(form.get("birthDate")) || null, mother_name: clean(form.get("motherName")) || null, city: clean(form.get("city")) || null, state: clean(form.get("state")) || null, status: clean(form.get("status")) === "dead" ? "dead" : "alive", custody_status: clean(form.get("custodyStatus")) === "detained" ? "detained" : "free", notes: clean(form.get("notes")) || null, faction_id: faction.id, created_by: user.id, created_at: now, updated_at: now }).select("id").single();
     if (error || !person) return fail(error?.message ?? "Não foi possível salvar o cadastro.", 400);
     try {
       const addresses = JSON.parse(String(form.get("addresses") ?? "[]")) as Array<Record<string, string>>;
@@ -445,8 +471,16 @@ async function handleData(path: string, req: Request) {
   }
   if (personMatch && req.method === "PUT") {
     const form = await req.formData();
-    const { error } = await api.from("people").update({ full_name: clean(form.get("fullName")), nickname: clean(form.get("nickname")) || null, cpf: clean(form.get("cpf")), birth_date: clean(form.get("birthDate")) || null, mother_name: clean(form.get("motherName")) || null, city: clean(form.get("city")) || null, state: clean(form.get("state")) || null, status: clean(form.get("status")) === "dead" ? "dead" : "alive", custody_status: clean(form.get("custodyStatus")) === "detained" ? "detained" : "free", notes: clean(form.get("notes")) || null, faction_id: Number(form.get("factionId")) || null }).eq("id", Number(personMatch[1]));
-    return error ? fail(error.message, 400) : json({ person: (await peopleRows([Number(personMatch[1])]))[0] });
+    const personId = Number(personMatch[1]);
+    const cpf = clean(form.get("cpf")).replace(/\\D/g, "");
+    if (cpf.length !== 11) return fail("Informe um CPF válido com 11 dígitos.", 400);
+    const { data: existingCpf, error: cpfError } = await api.from("people").select("id,full_name").eq("cpf", cpf).neq("id", personId).maybeSingle();
+    if (cpfError) return fail("Não foi possível validar o CPF.", 500);
+    if (existingCpf) return fail(`Já existe outro cadastro para este CPF: ${existingCpf.full_name}.`, 409);
+    const faction = await resolveFactionId(form);
+    if (faction.error) return fail(faction.error, 400);
+    const { error } = await api.from("people").update({ full_name: clean(form.get("fullName")), nickname: clean(form.get("nickname")) || null, cpf, birth_date: clean(form.get("birthDate")) || null, mother_name: clean(form.get("motherName")) || null, city: clean(form.get("city")) || null, state: clean(form.get("state")) || null, status: clean(form.get("status")) === "dead" ? "dead" : "alive", custody_status: clean(form.get("custodyStatus")) === "detained" ? "detained" : "free", notes: clean(form.get("notes")) || null, faction_id: faction.id, updated_at: new Date().toISOString() }).eq("id", personId);
+    return error ? fail(error.message, 400) : json({ person: (await peopleRows([personId]))[0] });
   }
   if (path === "/alerts" && req.method === "GET") {
     const params = new URL(req.url).searchParams;
