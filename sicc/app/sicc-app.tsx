@@ -1544,6 +1544,12 @@ function EditPersonModal({
     setEditNotice("");
     try {
       const form = new FormData(event.currentTarget);
+      const fullName = String(form.get("fullName") ?? "").trim();
+      const cpfDigits = String(form.get("cpf") ?? "").replace(/\\D/g, "");
+      if (fullName.length < 3) throw new Error("Informe o nome completo.");
+      if (cpfDigits.length !== 11) throw new Error("Informe um CPF válido com 11 dígitos.");
+      if (editFactionAffiliated && !editFactionChoice) throw new Error("Selecione uma facção ou escolha adicionar uma nova.");
+      if (editFactionAffiliated && editFactionChoice === "new" && editNewFactionName.trim().length < 2) throw new Error("Informe o nome da nova facção.");
       const editFaceFiles = form.getAll("facePhotos").filter((item): item is File => item instanceof File && item.size > 0);
       const editTattooFiles = form.getAll("tattoos").filter((item): item is File => item instanceof File && item.size > 0);
       // A edição aceita qualquer imagem sem exigir detecção facial.
@@ -1584,7 +1590,7 @@ function EditPersonModal({
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <form className="person-modal person-sheet edit-sheet" onSubmit={submitEdit} onClick={(event) => event.stopPropagation()}>
+      <form className="person-modal person-sheet edit-sheet" noValidate onSubmit={submitEdit} onClick={(event) => event.stopPropagation()}>
         <button type="button" className="close" onClick={onClose} aria-label="Fechar">×</button>
         <small className="eyebrow">EDIÇÃO AUDITADA</small>
         <h2>Editar ficha nº {person.id}</h2>
@@ -1668,7 +1674,7 @@ function EditPersonModal({
         {editNotice && <div className="feedback modal-feedback" role="alert">{editNotice}</div>}
         <div className="form-actions edit-actions">
           <button type="button" className="secondary" onClick={onClose}>Cancelar</button>
-          <button className="primary" disabled={loading}>{loading ? "Salvando…" : "Salvar alterações"}</button>
+          <button type="submit" className="primary" disabled={loading}>{loading ? "Salvando…" : "Salvar alterações"}</button>
         </div>
       </form>{mediaToRemove && <ConfirmModal title="Apagar esta foto?" message="A foto será removida do cadastro quando você salvar as alterações." confirmLabel="Apagar foto" onCancel={() => setMediaToRemove(null)} onConfirm={() => { setRemovedMediaIds((ids) => [...ids, mediaToRemove.id]); setMediaItems((items) => items.filter((item) => item.id !== mediaToRemove.id)); setMediaToRemove(null); }} />}
     </div>
