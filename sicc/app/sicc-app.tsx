@@ -894,6 +894,7 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
     setResults((items) => items.map((item) => item.id === person.id ? person : item));
     setEditPerson(null);
     setMessage("Dados atualizados e alteração registrada na auditoria.");
+    setRegisterNotice({ kind: "success", text: "As alterações foram salvas com sucesso." });
   }
 
   async function deletePerson(person: Person) {
