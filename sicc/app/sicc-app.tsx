@@ -381,6 +381,7 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
   const [bulkInviteCopyStatus, setBulkInviteCopyStatus] = useState<"idle" | "copied" | "error">("idle");
   const [bulkInviteGenerating, setBulkInviteGenerating] = useState(false);
   const [bulkInviteConfirm, setBulkInviteConfirm] = useState(false);
+  const [activeInvites, setActiveInvites] = useState<InviteLink[]>([]);
   const [logoutConfirm, setLogoutConfirm] = useState(false);
 
   const inviteStorageKey = `sicc:invite-links:${operator.id}`;
@@ -440,6 +441,7 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
     [...localChecked.filter((item): item is InviteLink => Boolean(item)), ...remote].forEach((item) => byId.set(item.id, item));
     const active = [...byId.values()];
     writeStoredInvites(active);
+    setActiveInvites(active);
     setInvite(active.filter((item) => item.kind === "single").sort((a, b) => b.id - a.id)[0] ?? null);
     setBulkInvite(active.filter((item) => item.kind === "bulk").sort((a, b) => b.id - a.id)[0] ?? null);
   }
@@ -511,6 +513,7 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
       const generated: InviteLink = { id: data.id, code: data.code, expiresAt: data.expiresAt, link: inviteUrl.toString(), kind: data.kind ?? kind };
       const stored = readStoredInvites().filter((item) => item.id !== generated.id);
       writeStoredInvites([...stored, generated]);
+      setActiveInvites((current) => [...current.filter((item) => item.id !== generated.id), generated].sort((a, b) => b.id - a.id));
       if (kind === "bulk") { setBulkInvite(generated); setBulkInviteCopyStatus("idle"); }
       else { setInvite(generated); setInviteCopyStatus("idle"); }
     } catch (error) {
@@ -532,6 +535,15 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
     } catch {
       if (target === "bulk") setBulkInviteCopyStatus("error");
       else setInviteCopyStatus("error");
+    }
+  }
+
+  async function copySpecificInvite(selectedInvite: InviteLink) {
+    try {
+      await navigator.clipboard.writeText(selectedInvite.link);
+      setMessage("Link copiado.");
+    } catch {
+      setMessage("Não foi possível copiar. Selecione o link manualmente.");
     }
   }
 
@@ -970,6 +982,7 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
             <div className="warning"><b>Uso pessoal e intransferível</b><small>As ações realizadas no sistema ficam vinculadas a este usuário.</small></div>
             <div className="invite-panel"><div><b>Convidar operador</b><small>O link expira em 7 dias e permite um único cadastro.</small></div><button className="secondary" disabled={loading || inviteGenerating || bulkInviteGenerating} onClick={() => void createInvite("single")}>{inviteGenerating ? <><span className="mini-loader" aria-hidden="true" /> Gerando link…</> : "Gerar link"}</button>{invite && <div className="invite-code"><strong>Link de uso único</strong><small>Expira em {formatDate(invite.expiresAt)}</small><button onClick={() => void copyInviteLink()}>{inviteCopyStatus === "copied" ? "Copiado ✓" : "Copiar link"}</button><code>{invite.link}</code>{inviteCopyStatus === "copied" && <span className="copy-status success">Link copiado.</span>}{inviteCopyStatus === "error" && <span className="copy-status error">Não foi possível copiar. Selecione o link manualmente.</span>}</div>}</div>
              {operator.role === "admin" && <div className="invite-panel bulk-invite-panel"><div><b>Link para vários cadastros</b><small>Exclusivo do administrador. Pode ser usado por várias pessoas até expirar ou ser revogado.</small></div><button className="secondary" disabled={loading || inviteGenerating || bulkInviteGenerating} onClick={() => void createInvite("bulk")}>{bulkInviteGenerating ? <><span className="mini-loader" aria-hidden="true" /> Gerando link…</> : "Gerar link reutilizável"}</button>{bulkInvite && <div className="invite-code"><strong>{bulkInvite.revokedAt ? "Link revogado" : "Link reutilizável ativo"}</strong><small>Expira em {formatDate(bulkInvite.expiresAt)}</small><button disabled={Boolean(bulkInvite.revokedAt)} onClick={() => void copyInviteLink("bulk")}>{bulkInviteCopyStatus === "copied" ? "Copiado ✓" : "Copiar link"}</button><code>{bulkInvite.link}</code>{!bulkInvite.revokedAt && <button type="button" className="danger-outline" onClick={() => setBulkInviteConfirm(true)}>Revogar link</button>}{bulkInviteCopyStatus === "copied" && <span className="copy-status success">Link copiado.</span>}{bulkInviteCopyStatus === "error" && <span className="copy-status error">Não foi possível copiar. Selecione o link manualmente.</span>}</div>}{bulkInviteConfirm && <ConfirmModal title="Revogar link reutilizável?" message="Novos cadastros não poderão mais usar este link. Cadastros já concluídos permanecem ativos." confirmLabel="Revogar link" onCancel={() => setBulkInviteConfirm(false)} onConfirm={async () => { setBulkInviteConfirm(false); await revokeBulkInvite(); }} />}</div>}
+             {activeInvites.filter((item) => item.id !== invite?.id && item.id !== bulkInvite?.id).length > 0 && <div className="invite-panel active-invites-panel"><div><b>Outros links ativos</b><small>Links permanecem disponíveis até expirar ou serem utilizados.</small></div>{activeInvites.filter((item) => item.id !== invite?.id && item.id !== bulkInvite?.id).map((item) => <div className="invite-code" key={item.id}><strong>{item.kind === "bulk" ? "Link reutilizável ativo" : "Link de uso único"}</strong><small>Expira em {formatDate(item.expiresAt)}{item.kind === "bulk" && item.useCount ? ` · ${item.useCount} uso(s)` : ""}</small><button onClick={() => void copySpecificInvite(item)}>Copiar link</button><code>{item.link}</code></div>)}</div>}
              <button className="logout-button" onClick={() => setLogoutConfirm(true)}>Sair da conta</button>
           </section>
         )}
