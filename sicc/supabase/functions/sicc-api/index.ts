@@ -256,7 +256,7 @@ async function handleAuth(path: string, req: Request) {
     const invite = clean(String(body.invite ?? ""));
     const now = new Date().toISOString();
     const { data: invitation } = await api.from("operator_invites")
-      .select("id,created_by,invite_type")
+      .select("id,created_by,invite_type,use_count")
       .eq("code_hash", await sha256(invite))
       .is("revoked_at", null)
       .gt("expires_at", now)
