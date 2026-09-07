@@ -1306,7 +1306,7 @@ function PhotoInput({ name, label, required, multiple }: { name: string; label: 
   </label>;
 }
 
-type AdminRow = { id: number; name: string; warName?: string; rank?: string; email?: string; role?: string; invitedBy?: string | null; cpf?: string; createdBy?: string; createdAt: string };
+type AdminRow = { id: number | string; name?: string; warName?: string; rank?: string; email?: string; role?: string; invitedBy?: string | null; cpf?: string; createdBy?: string | null; createdByName?: string | null; createdAt: string };
 function AdminList({ kind }: { kind: "operators" | "records" }) {
   const [rows, setRows] = useState<AdminRow[]>([]); const [page, setPage] = useState(1); const [total, setTotal] = useState(0); const [loading, setLoading] = useState(true);
   const [confirmRow, setConfirmRow] = useState<AdminRow | null>(null);
@@ -1316,18 +1316,24 @@ function AdminList({ kind }: { kind: "operators" | "records" }) {
     apiFetch(`/api/admin/${kind}?page=${page}`).then((response) => response.json()).then((data: { rows?: AdminRow[]; total?: number }) => {
       if (!active) return;
       setRows(data.rows ?? []); setTotal(data.total ?? 0); setLoading(false);
-    });
+    }).catch(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [page, kind]);
   async function remove(row: AdminRow) {
-    const response = kind === "operators" ? await apiFetch(`/api/admin/operators?id=${row.id}`, { method: "DELETE" }) : await apiFetch(`/api/people/${row.id}`, { method: "DELETE" });
+    const response = kind === "operators" ? await apiFetch(`/api/admin/operators?id=${encodeURIComponent(String(row.id))}`, { method: "DELETE" }) : await apiFetch(`/api/people/${row.id}`, { method: "DELETE" });
     if (response.ok) await load();
   }
   const pages = Math.max(1, Math.ceil(total / 10));
   return <section className="panel admin-list"><div className="panel-title"><h2>{kind === "operators" ? "Contas cadastradas" : "Pessoas cadastradas"}</h2><span>{total} no total</span></div>
-    {loading ? <p>Carregando…</p> : <div className="admin-rows">{rows.map((row) => <article key={row.id}><div><b>{row.rank ? `${row.rank} ${row.warName}` : row.name}</b><small>{kind === "operators" ? `${row.role === "admin" ? "Administrador" : "Operador"}${row.email ? ` · ${row.email}` : ""}${row.invitedBy ? ` · convidado por ${row.invitedBy}` : ""}` : `${maskCpf(row.cpf ?? "")} · cadastrado por ${row.createdBy ?? "não informado"}`}</small></div>{!(kind === "operators" && row.role === "admin") && <button onClick={() => setConfirmRow(row)}>Apagar</button>}</article>)}</div>}
+    {loading ? <p>Carregando…</p> : <div className="admin-rows">{rows.map((row) => {
+      const displayName = kind === "operators"
+        ? [row.rank, row.warName || row.name].filter((value) => Boolean(value && value.trim())).join(" ") || "Nome não informado"
+        : row.name || "Nome não informado";
+      const createdBy = row.createdByName || row.createdBy || "não informado";
+      return <article key={row.id}><div><b>{displayName}</b><small>{kind === "operators" ? `${row.role === "admin" ? "Administrador" : "Operador"}${row.email ? ` · ${row.email}` : ""}${row.invitedBy ? ` · convidado por ${row.invitedBy}` : ""}` : `${maskCpf(row.cpf ?? "")} · cadastrado por ${createdBy}`}</small></div>{!(kind === "operators" && row.role === "admin") && <button onClick={() => setConfirmRow(row)}>Apagar</button>}</article>;
+    })}</div>}
     <div className="pagination"><button disabled={page <= 1} onClick={() => setPage((value) => value - 1)}>Anterior</button><span>{page} de {pages}</span><button disabled={page >= pages} onClick={() => setPage((value) => value + 1)}>Próxima</button></div>
-    {confirmRow && <ConfirmModal title={`Apagar ${kind === "operators" ? "operador" : "cadastro"}?`} message={`Esta ação removerá ${confirmRow.name} permanentemente.`} confirmLabel="Apagar" onCancel={() => setConfirmRow(null)} onConfirm={async () => { const row = confirmRow; setConfirmRow(null); await remove(row); }} />}
+    {confirmRow && <ConfirmModal title={`Apagar ${kind === "operators" ? "operador" : "cadastro"}?`} message={`Esta ação removerá ${confirmRow.name || "este registro"} permanentemente.`} confirmLabel="Apagar" onCancel={() => setConfirmRow(null)} onConfirm={async () => { const row = confirmRow; setConfirmRow(null); await remove(row); }} />}
   </section>;
 }
 
