@@ -8,6 +8,7 @@ import { apiFetch } from "./api-client";
 type Operator = { id: string; name: string; warName: string; rank: string; email: string; role: "admin" | "operator"; invitedBy: string | null };
 type InviteLink = { id: number; code: string; expiresAt: string; link: string; kind: "single" | "bulk"; revokedAt?: string | null; useCount?: number };
 type Status = "alive" | "dead";
+type CustodyStatus = "free" | "detained";
 type Address = { id?: number; label: string; address: string; city: string; state: string; notes: string };
 type Faction = { id: number; name: string };
 type SeizedObject = { id?: number; description: string; quantity?: number; seizedAt: string; location?: string; notes?: string };
@@ -23,6 +24,7 @@ type Person = {
   city: string | null;
   state: string | null;
   status: Status;
+  custodyStatus: CustodyStatus;
   notes: string | null;
   factionId: number | null;
   factionName: string | null;
@@ -46,6 +48,11 @@ const IMAGE_SEARCH_ENABLED = false;
 const statusLabel: Record<Status, string> = {
   alive: "Vivo",
   dead: "Morto",
+};
+
+const custodyStatusLabel: Record<CustodyStatus, string> = {
+  free: "Em liberdade",
+  detained: "Preso",
 };
 
 const mediaLabel = {
@@ -1002,7 +1009,7 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
                 <label>Nome da mãe<input name="motherName" value={registerDraft.motherName} onChange={(event) => setRegisterDraft((draft) => ({ ...draft, motherName: event.target.value }))} placeholder="Auxilia a confirmação de identidade" /></label>
                 <label>Cidade de referência<input name="city" value={registerDraft.city} onChange={(event) => setRegisterDraft((draft) => ({ ...draft, city: event.target.value }))} placeholder="Município" /></label>
                 <label>UF<select name="state" value={registerDraft.state} onChange={(event) => setRegisterDraft((draft) => ({ ...draft, state: event.target.value }))}><option>PB</option><option>RN</option><option>PE</option><option>CE</option></select></label>
-                <label>Situação<select name="status" defaultValue="alive"><option value="alive">Vivo</option><option value="dead">Morto</option></select></label>
+                <label>Situação<select name="status" defaultValue="alive"><option value="alive">Vivo</option><option value="dead">Morto</option></select></label><label>Custódia<select name="custodyStatus" defaultValue="free"><option value="free">Em liberdade</option><option value="detained">Preso</option></select></label>
               </div>
               <div className="faction-fields">
                 <label className="faction-toggle">Faccionado?<select value={factionAffiliated ? "yes" : "no"} onChange={(event) => { const enabled = event.target.value === "yes"; setFactionAffiliated(enabled); if (!enabled) { setFactionChoice(""); setNewFactionName(""); } }}><option value="no">Não</option><option value="yes">Sim</option></select></label>
@@ -1430,7 +1437,7 @@ function PersonList({ people, onSelect }: { people: Person[]; onSelect: (person:
     const face = person.media?.find((item) => item.kind === "face" || item.kind === "face_front" || item.kind === "face_profile");
     return <button key={person.id} onClick={() => onSelect(person)}>
       {face ? <img className="list-photo" src={face.url} alt="" /> : <span className="list-avatar">{initials(person.fullName)}</span>}
-      <span className="person-name"><b>{person.fullName}</b><small>{person.nickname ? `“${person.nickname}” · ` : ""}{maskCpf(person.cpf)}</small><em>Nascimento: {formatDate(person.birthDate)} · {person.approachCount || 0} abordagem(ns)</em><span className="person-alerts">{person.factionName && <strong className="person-alert faction-alert">⚠ Faccionado: {person.factionName}</strong>}{person.seizedObjects?.length > 0 && <strong className="person-alert object-alert">⚠ Possui objeto apreendido</strong>}</span></span>
+      <span className="person-name"><b>{person.fullName}</b><small>{person.nickname ? `“${person.nickname}” · ` : ""}{maskCpf(person.cpf)}</small><em>Nascimento: {formatDate(person.birthDate)} · {custodyStatusLabel[person.custodyStatus ?? "free"]} · {person.approachCount || 0} abordagem(ns)</em><span className="person-alerts">{person.factionName && <strong className="person-alert faction-alert">⚠ Faccionado: {person.factionName}</strong>}{person.seizedObjects?.length > 0 && <strong className="person-alert object-alert">⚠ Possui objeto apreendido</strong>}</span></span>
       <span className={`badge ${person.status}`}>{statusLabel[person.status]}</span><span className="arrow">›</span>
     </button>;
   })}</div>;
@@ -1459,6 +1466,7 @@ function PersonModal({ person, onClose, onApproach, onEdit, onDelete }: { person
           <div><dt>Filiação</dt><dd>{person.motherName || "Não informada"}</dd></div>
           <div><dt>Referência</dt><dd>{[person.city, person.state].filter(Boolean).join(" / ") || "Não informada"}</dd></div>
           <div><dt>Faccionado</dt><dd>{person.factionName || "Não"}</dd></div>
+          <div><dt>Custódia</dt><dd>{custodyStatusLabel[person.custodyStatus ?? "free"]}</dd></div>
         </dl>
 
         {person.media?.length > 0 && <SheetSection title="Imagens de identificação" count={person.media.length}>
@@ -1561,7 +1569,7 @@ function EditPersonModal({
             <label>Nome da mãe<input name="motherName" defaultValue={person.motherName ?? ""} /></label>
             <label>Cidade de referência<input name="city" defaultValue={person.city ?? ""} /></label>
             <label>UF<select name="state" defaultValue={person.state ?? "PB"}><option>PB</option><option>RN</option><option>PE</option><option>CE</option></select></label>
-            <label>Situação<select name="status" defaultValue={person.status}><option value="alive">Vivo</option><option value="dead">Morto</option></select></label>
+            <label>Situação<select name="status" defaultValue={person.status}><option value="alive">Vivo</option><option value="dead">Morto</option></select></label><label>Custódia<select name="custodyStatus" defaultValue={person.custodyStatus ?? "free"}><option value="free">Em liberdade</option><option value="detained">Preso</option></select></label>
           </div>
           <div className="faction-fields">
             <label>Faccionado?<select value={editFactionAffiliated ? "yes" : "no"} onChange={(event) => { const enabled = event.target.value === "yes"; setEditFactionAffiliated(enabled); if (!enabled) { setEditFactionChoice(""); setEditNewFactionName(""); } }}><option value="no">Não</option><option value="yes">Sim</option></select></label>
