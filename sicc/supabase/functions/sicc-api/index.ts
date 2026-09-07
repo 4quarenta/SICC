@@ -372,7 +372,7 @@ async function handleData(path: string, req: Request) {
     const kind = String(body.kind ?? "single").toLowerCase() === "bulk" ? "bulk" : "single";
     if (kind === "bulk" && current.role !== "admin") return fail("Somente administradores podem criar convites reutilizáveis.", 403);
     const code = randomCode();
-    const expiresAt = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
+    const expiresAt = new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString();
     const { data, error } = await api.from("operator_invites")
       .insert({ code_hash: await sha256(code), code, created_by: user.id, expires_at: expiresAt, invite_type: kind, use_count: 0 })
       .select("id")
