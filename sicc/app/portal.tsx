@@ -16,6 +16,7 @@ export default function Portal() {
   const [bootstrapInvite, setBootstrapInvite] = useState("");
   const [mode, setMode] = useState<"login" | "register">("login");
   const [inviteCode, setInviteCode] = useState("");
+  const [inviteStatus, setInviteStatus] = useState<"checking" | "valid" | "invalid" | null>(null);
   const [message, setMessage] = useState("");
 
   async function refresh(bootstrapToken = bootstrapInvite) {
@@ -50,9 +51,36 @@ export default function Portal() {
     if (linkedInvite.trim()) {
       // URL parameters are external input; apply them after mount to avoid a
       // hydration mismatch between the server shell and the browser URL.
+      const code = linkedInvite.trim().toUpperCase();
       // eslint-disable-next-line react-hooks/set-state-in-effect
-      setInviteCode(linkedInvite.trim().toUpperCase());
-      setMode("register");
+      setInviteCode(code);
+      setInviteStatus("checking");
+      void (async () => {
+        await refresh();
+        try {
+          const response = await apiFetch(`/api/auth/invite-status?code=${encodeURIComponent(code)}`, { cache: "no-store" });
+          const status = await response.json() as { valid?: boolean; reason?: string };
+          if (status.valid) {
+            setInviteStatus("valid");
+            setMode("register");
+            return;
+          }
+          setInviteStatus("invalid");
+          setMode("login");
+          setMessage(
+            status.reason === "expired"
+              ? "Este link de convite expirou. Solicite outro código de convite ao administrador."
+              : status.reason === "used"
+                ? "Este convite já foi utilizado. Solicite outro código de convite."
+                : "Este link de convite não é válido. Solicite outro código de convite."
+          );
+        } catch {
+          setInviteStatus("invalid");
+          setMode("login");
+          setMessage("Não foi possível validar o convite. Solicite outro código de convite.");
+        }
+      })();
+      return;
     }
     void refresh();
   }, []);
@@ -108,7 +136,8 @@ export default function Portal() {
         <form onSubmit={(event) => submit(event, "/api/auth/bootstrap")}>{bootstrapInvite ? <input type="hidden" name="bootstrapInvite" value={bootstrapInvite} /> : <label>Código de ativação<input name="bootstrapKey" required autoComplete="off" /></label>}<label className="auth-select-field"><span>Posto ou graduação</span><div className="auth-select-wrap"><select name="rank" required defaultValue=""><option value="" disabled>Selecione seu posto ou graduação</option>{RANKS.map((rank) => <option key={rank}>{rank}</option>)}</select></div></label><label>Nome de guerra<input name="warName" required minLength={2} placeholder="Ex.: FULANO" /></label><label>E-mail do administrador<input name="email" type="email" required autoComplete="email" placeholder="seu e-mail" /></label><label>Senha<input name="password" type="password" required minLength={8} autoComplete="new-password" /></label><button className="primary" disabled={loading}>Ativar conta</button></form>
       </> : <><div className="auth-tabs"><button className={mode === "login" ? "active" : ""} onClick={() => { setMode("login"); setMessage(""); }}>Entrar</button><button className={mode === "register" ? "active" : ""} onClick={() => { setMode("register"); setMessage(""); }}>Cadastrar</button></div>
         {mode === "login" ? <form onSubmit={(event) => submit(event, "/api/auth/login")}><h1>Acesso do operador</h1><label>E-mail<input name="email" type="email" required autoComplete="email" /></label><label>Senha<input name="password" type="password" required autoComplete="current-password" /></label><button className="primary" disabled={loading}>Entrar</button></form>
-        : inviteCode.trim() ? <form onSubmit={(event) => submit(event, "/api/auth/register")}><h1>Novo operador</h1><p>É necessário um código de convite válido.</p><div className="invite-help"><b>Convite identificado</b><span>Preencha os dados abaixo. O convite será validado antes da criação da conta.</span></div><label>Código de convite<input name="invite" required value={inviteCode} onChange={(event) => setInviteCode(event.target.value.toUpperCase())} placeholder="Código preenchido pelo link" /></label><label className="auth-select-field"><span>Posto ou graduação</span><div className="auth-select-wrap"><select name="rank" required defaultValue=""><option value="" disabled>Selecione seu posto ou graduação</option>{RANKS.map((rank) => <option key={rank}>{rank}</option>)}</select></div></label><label>Nome de guerra<input name="warName" required minLength={2} placeholder="Ex.: CICRANO" /></label><label>E-mail<input name="email" type="email" required autoComplete="email" /></label><label>Senha<input name="password" type="password" required minLength={8} autoComplete="new-password" /></label><button className="primary" disabled={loading}>Criar conta</button></form> : <section className="invite-required"><div className="invite-required-icon" aria-hidden="true">⌁</div><h1>Convite necessário</h1><p>Este cadastro só pode ser iniciado por um link de convite. Solicite a um operador que já tenha acesso ao SICC que gere e envie o link para você.</p><button type="button" className="secondary" onClick={() => { setMode("login"); setMessage(""); }}>Voltar para entrar</button></section>}
+        : inviteStatus === "checking" ? <section className="invite-required"><div className="invite-required-icon" aria-hidden="true">…</div><h1>Validando convite</h1><p>Estamos verificando o link de convite. Aguarde um instante.</p></section>
+        : inviteCode.trim() && inviteStatus === "valid" ? <form onSubmit={(event) => submit(event, "/api/auth/register")}><h1>Novo operador</h1><p>É necessário um código de convite válido.</p><div className="invite-help"><b>Convite identificado</b><span>Preencha os dados abaixo. O convite será validado antes da criação da conta.</span></div><label>Código de convite<input name="invite" required value={inviteCode} onChange={(event) => setInviteCode(event.target.value.toUpperCase())} placeholder="Código preenchido pelo link" /></label><label className="auth-select-field"><span>Posto ou graduação</span><div className="auth-select-wrap"><select name="rank" required defaultValue=""><option value="" disabled>Selecione seu posto ou graduação</option>{RANKS.map((rank) => <option key={rank}>{rank}</option>)}</select></div></label><label>Nome de guerra<input name="warName" required minLength={2} placeholder="Ex.: CICRANO" /></label><label>E-mail<input name="email" type="email" required autoComplete="email" /></label><label>Senha<input name="password" type="password" required minLength={8} autoComplete="new-password" /></label><button className="primary" disabled={loading}>Criar conta</button></form> : <section className="invite-required"><div className="invite-required-icon" aria-hidden="true">⌁</div><h1>Convite necessário</h1><p>Este cadastro só pode ser iniciado por um link de convite. Solicite a um operador que já tenha acesso ao SICC que gere e envie o link para você.</p><button type="button" className="secondary" onClick={() => { setMode("login"); setMessage(""); }}>Voltar para entrar</button></section>}
       </>}
     </section>
   </main>;
