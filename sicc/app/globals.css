@@ -125,3 +125,5 @@ body:has(.edit-sheet) .modal-backdrop{z-index:100}
   body:has(.edit-sheet) .edit-sheet{width:100%;height:100dvh;max-height:none;min-height:100dvh;border-radius:0;padding:16px 14px calc(112px + env(safe-area-inset-bottom));overflow-y:auto;overscroll-behavior:contain}
   body:has(.edit-sheet) .edit-actions{position:fixed;left:0;right:0;bottom:0;margin:0!important;padding:12px 14px calc(12px + env(safe-area-inset-bottom))!important;background:rgba(255,255,255,.97);backdrop-filter:blur(10px);box-shadow:0 -4px 16px #123b4618;z-index:110}
 }
+
+.modal-feedback{margin:0 0 12px;width:100%;box-sizing:border-box}
