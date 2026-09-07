@@ -317,29 +317,35 @@ async function handleData(path: string, req: Request) {
     return error ? fail(error.message, 400) : json({ faction: data });
   }
   if (path === "/invites" && req.method === "GET") {
-    const code = clean(new URL(req.url).searchParams.get("code"));
-    if (!code) return json({ active: false });
-    const { data, error } = await api.from("operator_invites")
-      .select("id,expires_at,used_at,invite_type,revoked_at,use_count")
+    const params = new URL(req.url).searchParams;
+    const code = clean(params.get("code"));
+    let query = api.from("operator_invites")
+      .select("id,code,expires_at,used_at,invite_type,revoked_at,use_count")
       .eq("created_by", user.id)
-      .eq("code_hash", await sha256(code))
-      .maybeSingle();
+      .order("created_at", { ascending: false });
+    if (code) query = query.eq("code_hash", await sha256(code));
+    const { data, error } = code ? await query.maybeSingle() : await query;
     if (error) return fail(error.message, 500);
-    const active = Boolean(data)
-      && new Date(data.expires_at).getTime() > Date.now()
-      && data.revoked_at === null
-      && (data.invite_type === "bulk" || data.used_at === null);
-    return json({
-      active,
-      invite: data ? {
-        id: data.id,
-        kind: data.invite_type,
-        expiresAt: data.expires_at,
-        usedAt: data.used_at,
-        revokedAt: data.revoked_at,
-        useCount: data.use_count ?? 0,
-      } : null,
-    });
+    const rows = code ? (data ? [data] : []) : (data ?? []);
+    const activeRows = rows.filter((row) =>
+      new Date(row.expires_at).getTime() > Date.now()
+      && row.revoked_at === null
+      && (row.invite_type === "bulk" || row.used_at === null)
+      && typeof row.code === "string" && row.code.length > 0
+    );
+    const invites = activeRows.map((row) => ({
+      id: row.id,
+      code: row.code,
+      kind: row.invite_type,
+      expiresAt: row.expires_at,
+      usedAt: row.used_at,
+      revokedAt: row.revoked_at,
+      useCount: row.use_count ?? 0,
+    }));
+    return code ? json({
+      active: invites.length > 0,
+      invite: invites[0] ?? null,
+    }) : json({ invites });
   }
   if (path === "/invites" && req.method === "POST") {
     const body = await bodyJson(req);
@@ -348,7 +354,7 @@ async function handleData(path: string, req: Request) {
     const code = randomCode();
     const expiresAt = new Date(Date.now() + (kind === "bulk" ? 30 : 7) * 24 * 60 * 60 * 1000).toISOString();
     const { data, error } = await api.from("operator_invites")
-      .insert({ code_hash: await sha256(code), created_by: user.id, expires_at: expiresAt, invite_type: kind, use_count: 0 })
+      .insert({ code_hash: await sha256(code), code, created_by: user.id, expires_at: expiresAt, invite_type: kind, use_count: 0 })
       .select("id")
       .single();
     return error || !data ? fail(error?.message ?? "Não foi possível gerar o convite.", 500) : json({ id: data.id, code, expiresAt, kind });
