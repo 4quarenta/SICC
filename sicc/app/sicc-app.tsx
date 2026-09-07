@@ -1119,7 +1119,7 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
           loading={loading}
           onClose={() => setEditPerson(null)}
           onLoading={setLoading}
-          onMessage={setMessage}
+          onMessage={(value) => { setMessage(value); setRegisterNotice({ kind: "error", text: value }); }}
           onUpdated={personUpdated}
         />
       )}
@@ -1564,10 +1564,10 @@ function EditPersonModal({
       form.set("addresses", JSON.stringify(editAddresses.filter((item) => item.address.trim())));
       form.set("seizedObjects", JSON.stringify(editObjects.filter((item) => item.description.trim())));
       form.set("factionAffiliated", editFactionAffiliated ? "yes" : "no");
-      if (editFactionAffiliated) {
-        if (editFactionChoice === "new") form.set("newFactionName", editNewFactionName);
-        else form.set("factionId", editFactionChoice);
-      }
+      // Envie sempre os dois valores: isso evita perder a opção “Adicionar nova”
+      // quando o seletor controlado estiver sendo usado no Safari/iOS.
+      form.set("factionId", editFactionAffiliated ? editFactionChoice : "");
+      form.set("newFactionName", editFactionAffiliated && editFactionChoice === "new" ? editNewFactionName : "");
       const response = await withTimeout(
         apiFetch(`/api/people/${person.id}`, { method: "PUT", body: form }),
         30000,
