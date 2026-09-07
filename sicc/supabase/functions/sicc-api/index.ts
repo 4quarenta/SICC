@@ -417,7 +417,7 @@ async function handleData(path: string, req: Request) {
     let ids: number[] | undefined;
     if (Number.isFinite(id) && id > 0) ids = [id];
     else if (q) {
-      const cpfQuery = q.replace(/\\D/g, "");
+      const cpfQuery = q.replace(/\D/g, "");
       const [name, nickname, mother, cpf] = await Promise.all([
         api.from("people").select("id").ilike("full_name", `%${q}%`),
         api.from("people").select("id").ilike("nickname", `%${q}%`),
@@ -433,7 +433,7 @@ async function handleData(path: string, req: Request) {
   }
   if (path === "/people" && req.method === "POST") {
     const form = await req.formData();
-    const cpf = clean(form.get("cpf")).replace(/\\D/g, "");
+    const cpf = clean(form.get("cpf")).replace(/\D/g, "");
     if (cpf.length !== 11) return fail("Informe um CPF válido com 11 dígitos.", 400);
     const { data: existingCpf, error: cpfError } = await api.from("people").select("id,full_name").eq("cpf", cpf).maybeSingle();
     if (cpfError) return fail("Não foi possível validar o CPF.", 500);
@@ -478,7 +478,7 @@ async function handleData(path: string, req: Request) {
   if (personMatch && req.method === "PUT") {
     const form = await req.formData();
     const personId = Number(personMatch[1]);
-    const cpf = clean(form.get("cpf")).replace(/\\D/g, "");
+    const cpf = clean(form.get("cpf")).replace(/\D/g, "");
     if (cpf.length !== 11) return fail("Informe um CPF válido com 11 dígitos.", 400);
     const { data: existingCpf, error: cpfError } = await api.from("people").select("id,full_name").eq("cpf", cpf).neq("id", personId).maybeSingle();
     if (cpfError) return fail("Não foi possível validar o CPF.", 500);
