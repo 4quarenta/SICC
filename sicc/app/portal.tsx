@@ -61,10 +61,12 @@ export default function Portal() {
           const response = await apiFetch(`/api/auth/invite-status?code=${encodeURIComponent(code)}`, { cache: "no-store" });
           const status = await response.json() as { valid?: boolean; reason?: string };
           if (status.valid) {
+            setBootstrap(false);
             setInviteStatus("valid");
             setMode("register");
             return;
           }
+          setBootstrap(false);
           setInviteStatus("invalid");
           setMode("login");
           setMessage(
@@ -75,6 +77,7 @@ export default function Portal() {
                 : "Este link de convite não é válido. Solicite outro código de convite."
           );
         } catch {
+          setBootstrap(false);
           setInviteStatus("invalid");
           setMode("login");
           setMessage("Não foi possível validar o convite. Solicite outro código de convite.");
