@@ -127,8 +127,15 @@ async function operatorContext(req: Request, admin = false) {
   return { user, current } as const;
 }
 
-function operatorPayload(user: User, current: { user_id: string; war_name: string; rank: string; role: "admin" | "operator"; invited_by: string | null }) {
-  return { id: user.id, name: current.war_name, warName: current.war_name, rank: current.rank, email: user.email ?? "", role: current.role, invitedBy: current.invited_by };
+async function operatorPayload(user: User, current: { user_id: string; war_name: string; rank: string; role: "admin" | "operator"; invited_by: string | null }) {
+  let invitedBy: string | null = null;
+  if (current.invited_by) {
+    const { data: inviter } = await api.from("operator_profiles").select("war_name,rank").eq("user_id", current.invited_by).maybeSingle();
+    invitedBy = inviter
+      ? [inviter.rank, inviter.war_name].filter(Boolean).join(" ")
+      : "Operador não localizado";
+  }
+  return { id: user.id, name: current.war_name, warName: current.war_name, rank: current.rank, email: user.email ?? "", role: current.role, invitedBy };
 }
 
 async function findBootstrapInvite(token: string) {
@@ -185,6 +192,7 @@ async function peopleRows(ids?: number[]) {
     city: row.city,
     state: row.state,
     status: row.status,
+    custodyStatus: row.custody_status ?? "free",
     notes: row.notes,
     factionId: row.faction_id,
     factionName: row.faction_id ? factionMap.get(row.faction_id) ?? null : null,
@@ -401,7 +409,7 @@ async function handleData(path: string, req: Request) {
   if (path === "/people" && req.method === "POST") {
     const form = await req.formData();
     const now = new Date().toISOString();
-    const { data: person, error } = await api.from("people").insert({ full_name: clean(form.get("fullName")), nickname: clean(form.get("nickname")) || null, cpf: clean(form.get("cpf")), birth_date: clean(form.get("birthDate")) || null, mother_name: clean(form.get("motherName")) || null, city: clean(form.get("city")) || null, state: clean(form.get("state")) || null, status: "alive", notes: clean(form.get("notes")) || null, faction_id: Number(form.get("factionId")) || null, created_by: user.id, created_at: now, updated_at: now }).select("id").single();
+    const { data: person, error } = await api.from("people").insert({ full_name: clean(form.get("fullName")), nickname: clean(form.get("nickname")) || null, cpf: clean(form.get("cpf")), birth_date: clean(form.get("birthDate")) || null, mother_name: clean(form.get("motherName")) || null, city: clean(form.get("city")) || null, state: clean(form.get("state")) || null, status: clean(form.get("status")) === "dead" ? "dead" : "alive", custody_status: clean(form.get("custodyStatus")) === "detained" ? "detained" : "free", notes: clean(form.get("notes")) || null, faction_id: Number(form.get("factionId")) || null, created_by: user.id, created_at: now, updated_at: now }).select("id").single();
     if (error || !person) return fail(error?.message ?? "Não foi possível salvar o cadastro.", 400);
     try {
       const addresses = JSON.parse(String(form.get("addresses") ?? "[]")) as Array<Record<string, string>>;
@@ -437,7 +445,7 @@ async function handleData(path: string, req: Request) {
   }
   if (personMatch && req.method === "PUT") {
     const form = await req.formData();
-    const { error } = await api.from("people").update({ full_name: clean(form.get("fullName")), nickname: clean(form.get("nickname")) || null, cpf: clean(form.get("cpf")), birth_date: clean(form.get("birthDate")) || null, mother_name: clean(form.get("motherName")) || null, city: clean(form.get("city")) || null, state: clean(form.get("state")) || null, notes: clean(form.get("notes")) || null, faction_id: Number(form.get("factionId")) || null }).eq("id", Number(personMatch[1]));
+    const { error } = await api.from("people").update({ full_name: clean(form.get("fullName")), nickname: clean(form.get("nickname")) || null, cpf: clean(form.get("cpf")), birth_date: clean(form.get("birthDate")) || null, mother_name: clean(form.get("motherName")) || null, city: clean(form.get("city")) || null, state: clean(form.get("state")) || null, status: clean(form.get("status")) === "dead" ? "dead" : "alive", custody_status: clean(form.get("custodyStatus")) === "detained" ? "detained" : "free", notes: clean(form.get("notes")) || null, faction_id: Number(form.get("factionId")) || null }).eq("id", Number(personMatch[1]));
     return error ? fail(error.message, 400) : json({ person: (await peopleRows([Number(personMatch[1])]))[0] });
   }
   if (path === "/alerts" && req.method === "GET") {
