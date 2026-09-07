@@ -216,7 +216,7 @@ async function handleAuth(path: string, req: Request) {
       return json({ operator: null, bootstrapAllowed });
     }
     const current = await profile(user.id);
-    return json({ operator: current ? operatorPayload(user, current) : null, bootstrapAllowed: false });
+    return json({ operator: current ? await operatorPayload(user, current) : null, bootstrapAllowed: false });
   }
   if (path === "/auth/logout" && req.method === "POST") return json({ ok: true });
   if (path === "/auth/login" && req.method === "POST") {
@@ -226,7 +226,7 @@ async function handleAuth(path: string, req: Request) {
     if (error || !data.user || !data.session) return fail("E-mail ou senha inválidos.", 401);
     const current = await profile(data.user.id);
     if (!current) return fail("Sua conta ainda não foi provisionada como operador.", 403);
-    return json({ ...operatorPayload(data.user, current), access_token: data.session.access_token, refresh_token: data.session.refresh_token, expires_in: data.session.expires_in });
+    return json({ ...await operatorPayload(data.user, current), access_token: data.session.access_token, refresh_token: data.session.refresh_token, expires_in: data.session.expires_in });
   }
   if (path === "/auth/bootstrap" && req.method === "POST") {
     const body = await bodyJson(req);
@@ -258,7 +258,7 @@ async function handleAuth(path: string, req: Request) {
     const client = createClient(supabaseUrl, anonKey);
     const { data: session, error: loginError } = await client.auth.signInWithPassword({ email: clean(String(body.email ?? "")), password: String(body.password ?? "") });
     if (loginError || !session.session) return fail("Conta criada, mas não foi possível iniciar a sessão.", 500);
-    return json({ ...operatorPayload(created.user, { user_id: created.user.id, war_name: clean(String(body.warName ?? "")), rank: clean(String(body.rank ?? "")), role: "admin", invited_by: null }), access_token: session.session.access_token, refresh_token: session.session.refresh_token, expires_in: session.session.expires_in });
+    return json({ ...await operatorPayload(created.user, { user_id: created.user.id, war_name: clean(String(body.warName ?? "")), rank: clean(String(body.rank ?? "")), role: "admin", invited_by: null }), access_token: session.session.access_token, refresh_token: session.session.refresh_token, expires_in: session.session.expires_in });
   }
   if (path === "/auth/invite-status" && req.method === "GET") {
     const code = clean(new URL(req.url).searchParams.get("code"));
@@ -317,7 +317,7 @@ async function handleAuth(path: string, req: Request) {
     const client = createClient(supabaseUrl, anonKey);
     const { data: session, error: loginError } = await client.auth.signInWithPassword({ email: clean(String(body.email ?? "")), password: String(body.password ?? "") });
     if (loginError || !session.session) return fail("Conta criada, mas não foi possível iniciar a sessão.", 500);
-    return json({ ...operatorPayload(created.user, { user_id: created.user.id, war_name: clean(String(body.warName ?? "")), rank: clean(String(body.rank ?? "")), role: "operator", invited_by: invitation.created_by }), access_token: session.session.access_token, refresh_token: session.session.refresh_token, expires_in: session.session.expires_in });
+    return json({ ...await operatorPayload(created.user, { user_id: created.user.id, war_name: clean(String(body.warName ?? "")), rank: clean(String(body.rank ?? "")), role: "operator", invited_by: invitation.created_by }), access_token: session.session.access_token, refresh_token: session.session.refresh_token, expires_in: session.session.expires_in });
   }
   return null;
 }
