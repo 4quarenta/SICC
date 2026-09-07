@@ -408,6 +408,10 @@ async function handleData(path: string, req: Request) {
   }
   if (path === "/people" && req.method === "GET") {
     const url = new URL(req.url);
+    if (url.searchParams.get("count") === "1") {
+      const { count, error } = await api.from("people").select("id", { count: "exact", head: true });
+      return error ? fail("Não foi possível obter o total de cadastros.", 500) : json({ total: count ?? 0 });
+    }
     const id = Number(url.searchParams.get("id"));
     const q = clean(url.searchParams.get("q"));
     let ids: number[] | undefined;
@@ -423,7 +427,9 @@ async function handleData(path: string, req: Request) {
       if (name.error || nickname.error || mother.error || cpf.error) return fail("Não foi possível consultar os cadastros.", 500);
       ids = [...new Set([...(name.data ?? []), ...(nickname.data ?? []), ...(mother.data ?? []), ...(cpf.data ?? [])].map((row) => row.id as number))];
     }
-    return json({ people: await peopleRows(ids) });
+    const people = await peopleRows(ids);
+    const { count, error: countError } = await api.from("people").select("id", { count: "exact", head: true });
+    return countError ? fail("Não foi possível obter o total de cadastros.", 500) : json({ people, total: count ?? 0 });
   }
   if (path === "/people" && req.method === "POST") {
     const form = await req.formData();
