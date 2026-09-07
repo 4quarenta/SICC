@@ -495,6 +495,8 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
       const inviteUrl = new URL(appPath, window.location.origin);
       inviteUrl.searchParams.set("convite", data.code);
       const generated: InviteLink = { id: data.id, code: data.code, expiresAt: data.expiresAt, link: inviteUrl.toString(), kind: data.kind ?? kind };
+      const stored = readStoredInvites().filter((item) => item.id !== generated.id);
+      writeStoredInvites([...stored, generated]);
       if (kind === "bulk") { setBulkInvite(generated); setBulkInviteCopyStatus("idle"); }
       else { setInvite(generated); setInviteCopyStatus("idle"); }
     } catch (error) {
@@ -526,7 +528,9 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
       const response = await apiFetch(`/api/invites/${bulkInvite.id}`, { method: "PATCH" });
       const data = await response.json() as { error?: string };
       if (!response.ok) { setMessage(data.error ?? "Não foi possível revogar o link."); return; }
-      setBulkInvite((current) => current ? { ...current, revokedAt: new Date().toISOString() } : current);
+      const revokedAt = new Date().toISOString();
+      setBulkInvite((current) => current ? { ...current, revokedAt } : current);
+      writeStoredInvites(readStoredInvites().map((item) => item.id === bulkInvite.id ? { ...item, revokedAt } : item));
       setMessage("Link reutilizável revogado.");
     } catch {
       setMessage("Não foi possível revogar o link. Verifique sua conexão.");
