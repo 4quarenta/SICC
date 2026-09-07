@@ -406,30 +406,39 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
   }
 
   async function refreshStoredInvites() {
+    const appPath = window.location.pathname.endsWith("/") ? window.location.pathname : `${window.location.pathname}/`;
+    const buildLink = (code: string) => {
+      const url = new URL(appPath, window.location.origin);
+      url.searchParams.set("convite", code);
+      return url.toString();
+    };
     const stored = readStoredInvites().filter((item) => {
       const expiry = new Date(item.expiresAt).getTime();
       return Number.isFinite(expiry) && expiry > Date.now();
     });
-    if (!stored.length) {
-      setInvite(null);
-      setBulkInvite(null);
-      writeStoredInvites([]);
-      return;
+    let remote: InviteLink[] = [];
+    try {
+      const response = await apiFetch("/api/invites", { cache: "no-store" });
+      const data = await response.json() as { invites?: Array<Partial<InviteLink> & { code?: string }> };
+      if (response.ok) {
+        remote = (data.invites ?? []).filter((item): item is InviteLink => Boolean(item.id && item.code && item.expiresAt && (item.kind === "single" || item.kind === "bulk"))).map((item) => ({ ...item, link: buildLink(item.code) }));
+      }
+    } catch {
+      // Mantém os convites locais quando a consulta de atualização estiver indisponível.
     }
-    const checked = await Promise.all(stored.map(async (item) => {
+    const localChecked = await Promise.all(stored.map(async (item) => {
       try {
         const response = await apiFetch(`/api/invites?code=${encodeURIComponent(item.code)}`, { cache: "no-store" });
         const data = await response.json() as { active?: boolean; invite?: Partial<InviteLink> | null };
         if (!response.ok || !data.active) return null;
-        const appPath = window.location.pathname.endsWith("/") ? window.location.pathname : `${window.location.pathname}/`;
-        const inviteUrl = new URL(appPath, window.location.origin);
-        inviteUrl.searchParams.set("convite", item.code);
-        return { ...item, ...(data.invite ?? {}), link: inviteUrl.toString() };
+        return { ...item, ...(data.invite ?? {}), link: buildLink(item.code) };
       } catch {
         return item;
       }
     }));
-    const active = checked.filter((item): item is InviteLink => Boolean(item));
+    const byId = new Map<number, InviteLink>();
+    [...localChecked.filter((item): item is InviteLink => Boolean(item)), ...remote].forEach((item) => byId.set(item.id, item));
+    const active = [...byId.values()];
     writeStoredInvites(active);
     setInvite(active.filter((item) => item.kind === "single").sort((a, b) => b.id - a.id)[0] ?? null);
     setBulkInvite(active.filter((item) => item.kind === "bulk").sort((a, b) => b.id - a.id)[0] ?? null);
