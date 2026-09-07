@@ -485,8 +485,96 @@ async function handleData(path: string, req: Request) {
     if (existingCpf) return fail(`Já existe outro cadastro para este CPF: ${existingCpf.full_name}.`, 409);
     const faction = await resolveFactionId(form);
     if (faction.error) return fail(faction.error, 400);
-    const { error } = await api.from("people").update({ full_name: clean(form.get("fullName")), nickname: clean(form.get("nickname")) || null, cpf, birth_date: clean(form.get("birthDate")) || null, mother_name: clean(form.get("motherName")) || null, city: clean(form.get("city")) || null, state: clean(form.get("state")) || null, status: clean(form.get("status")) === "dead" ? "dead" : "alive", custody_status: clean(form.get("custodyStatus")) === "detained" ? "detained" : "free", notes: clean(form.get("notes")) || null, faction_id: faction.id, updated_at: new Date().toISOString() }).eq("id", personId);
-    return error ? fail(error.message, 400) : json({ person: (await peopleRows([personId]))[0] });
+
+    const { error: updateError } = await api.from("people").update({
+      full_name: clean(form.get("fullName")),
+      nickname: clean(form.get("nickname")) || null,
+      cpf,
+      birth_date: clean(form.get("birthDate")) || null,
+      mother_name: clean(form.get("motherName")) || null,
+      city: clean(form.get("city")) || null,
+      state: clean(form.get("state")) || null,
+      status: clean(form.get("status")) === "dead" ? "dead" : "alive",
+      custody_status: clean(form.get("custodyStatus")) === "detained" ? "detained" : "free",
+      notes: clean(form.get("notes")) || null,
+      faction_id: faction.id,
+      updated_at: new Date().toISOString(),
+    }).eq("id", personId);
+    if (updateError) return fail(updateError.message, 400);
+
+    try {
+      const addresses = JSON.parse(String(form.get("addresses") ?? "[]")) as Array<Record<string, string>>;
+      const addressDelete = await api.from("addresses").delete().eq("person_id", personId);
+      if (addressDelete.error) throw addressDelete.error;
+      if (addresses.length) {
+        const addressInsert = await api.from("addresses").insert(addresses.map((item) => ({
+          person_id: personId,
+          label: clean(item.label) || "Residencial",
+          address: clean(item.address),
+          city: clean(item.city) || null,
+          state: clean(item.state) || null,
+          notes: clean(item.notes) || null,
+        })));
+        if (addressInsert.error) throw addressInsert.error;
+      }
+
+      const seized = JSON.parse(String(form.get("seizedObjects") ?? "[]")) as Array<Record<string, string | number>>;
+      const seizedDelete = await api.from("seized_objects").delete().eq("person_id", personId);
+      if (seizedDelete.error) throw seizedDelete.error;
+      if (seized.length) {
+        const seizedInsert = await api.from("seized_objects").insert(seized.map((item) => ({
+          person_id: personId,
+          description: clean(String(item.description)),
+          quantity: Number(item.quantity) || 1,
+          seized_at: clean(String(item.seizedAt)) || null,
+          location: clean(String(item.location)) || null,
+          notes: clean(String(item.notes)) || null,
+        })));
+        if (seizedInsert.error) throw seizedInsert.error;
+      }
+
+      const removeIds = JSON.parse(String(form.get("removeMediaIds") ?? "[]")) as number[];
+      const validRemoveIds = removeIds.filter((id) => Number.isInteger(id) && id > 0);
+      if (validRemoveIds.length) {
+        const { data: mediaToRemove, error: mediaLookupError } = await api.from("person_media")
+          .select("id,object_key")
+          .eq("person_id", personId)
+          .in("id", validRemoveIds);
+        if (mediaLookupError) throw mediaLookupError;
+        const keys = (mediaToRemove ?? []).map((item) => item.object_key).filter(Boolean);
+        if (keys.length) await api.storage.from(bucket).remove(keys);
+        const mediaDelete = await api.from("person_media").delete().eq("person_id", personId).in("id", validRemoveIds);
+        if (mediaDelete.error) throw mediaDelete.error;
+      }
+
+      const faceFiles = form.getAll("facePhotos").filter((item): item is File => item instanceof File && item.size > 0);
+      const tattooFiles = form.getAll("tattoos").filter((item): item is File => item instanceof File && item.size > 0);
+      const mediaFiles = [
+        ...faceFiles.map((file) => ({ file, kind: "face" as const, capturedAt: clean(form.get("facePhotoDate")) || null })),
+        ...tattooFiles.map((file) => ({ file, kind: "tattoo" as const, capturedAt: clean(form.get("tattooPhotoDate")) || null })),
+      ];
+      for (const item of mediaFiles) {
+        const file = item.file;
+        const objectKey = `${user.id}/${personId}/${crypto.randomUUID()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
+        const upload = await api.storage.from(bucket).upload(objectKey, file, { contentType: file.type, upsert: false });
+        if (upload.error) throw upload.error;
+        const mediaInsert = await api.from("person_media").insert({
+          person_id: personId,
+          kind: item.kind,
+          object_key: objectKey,
+          original_name: file.name,
+          content_type: file.type,
+          byte_size: file.size,
+          sha256: await sha256Bytes(await file.arrayBuffer()),
+          captured_at: item.capturedAt,
+          description: null,
+        });
+        if (mediaInsert.error) throw mediaInsert.error;
+      }
+    } catch (error) {
+      return fail(error instanceof Error ? error.message : "Não foi possível salvar os dados complementares.", 400);
+    }
+    return json({ person: (await peopleRows([personId]))[0] });
   }
   if (path === "/alerts" && req.method === "GET") {
     const params = new URL(req.url).searchParams;
