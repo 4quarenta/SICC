@@ -1,1 +1,6 @@
 pages-dist/
+
+# Backups are generated only inside CI and must never enter Git.
+backup/
+.backup/
+.rclone/
