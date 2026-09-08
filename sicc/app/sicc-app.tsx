@@ -5,7 +5,7 @@ import { ALERT_CATEGORIES, ALERT_PRIORITY_LABEL, ALERT_PRIORITY_ORDER, type Aler
 import { LOCALITIES, LOCALITY_CITIES, LOCALITY_STATES } from "./localities";
 import { apiFetch } from "./api-client";
 import { parseInfosegText } from "./infoseg-parser";
-import { initOneSignal, logoutOneSignal, requestOneSignalPermission, type OneSignalSdk } from "./onesignal";
+import { initOneSignal, logoutOneSignal, readOneSignalPermission, requestOneSignalPermission, type OneSignalSdk } from "./onesignal";
 
 type Operator = { id: string; name: string; warName: string; rank: string; email: string; role: "admin" | "operator"; invitedBy: string | null };
 type InviteLink = { id: number; code: string; expiresAt: string; link: string; kind: "single" | "bulk"; revokedAt?: string | null; useCount?: number };
@@ -471,7 +471,7 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
       .then((sdk) => {
         if (!active) return;
         setOneSignal(sdk);
-        const permission = sdk.Notifications.permission;
+        const permission = readOneSignalPermission(sdk);
         setPushState(permission === "granted" ? "enabled" : permission === "denied" ? "denied" : "ready");
       })
       .catch(() => {
