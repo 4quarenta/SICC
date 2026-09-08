@@ -221,7 +221,7 @@ async function peopleRows(ids?: number[]) {
     factionName: row.faction_id ? factionMap.get(row.faction_id) ?? null : null,
     createdAt: row.created_at,
     addresses: (addresses.data ?? []).filter((item) => item.person_id === row.id).map((item) => ({ id: item.id, label: item.label, address: item.address, city: item.city ?? "", state: item.state ?? "", notes: item.notes ?? "" })),
-    approaches: (approaches.data ?? []).filter((item) => item.person_id === row.id).map((item) => ({ id: item.id, occurredAt: item.occurred_at, latitude: String(item.latitude), longitude: String(item.longitude), accuracyMeters: item.accuracy_meters, locationLabel: item.location_label, notes: item.notes })),
+    approaches: (approaches.data ?? []).filter((item) => item.person_id === row.id).map((item) => ({ id: item.id, occurredAt: item.occurred_at ?? null, latitude: item.latitude == null ? null : String(item.latitude), longitude: item.longitude == null ? null : String(item.longitude), accuracyMeters: item.accuracy_meters, locationLabel: item.location_label, notes: item.notes })),
     approachCount: (approaches.data ?? []).filter((item) => item.person_id === row.id).length,
     seizedObjects: (seized.data ?? []).filter((item) => item.person_id === row.id).map((item) => ({ id: item.id, description: item.description, quantity: item.quantity, seizedAt: item.seized_at ?? "", location: item.location ?? "", notes: item.notes ?? "" })),
     media: mediaWithUrls.filter((item) => (media.data ?? []).find((source) => source.id === item.id)?.person_id === row.id),
@@ -454,6 +454,21 @@ async function handleData(path: string, req: Request) {
       if (addresses.length) await api.from("addresses").insert(addresses.map((item) => ({ person_id: person.id, label: clean(item.label) || "Residencial", address: clean(item.address), city: clean(item.city) || null, state: clean(item.state) || null, notes: clean(item.notes) || null })));
       const seized = JSON.parse(String(form.get("seizedObjects") ?? "[]")) as Array<Record<string, string | number>>;
       if (seized.length) await api.from("seized_objects").insert(seized.map((item) => ({ person_id: person.id, description: clean(String(item.description)), quantity: Number(item.quantity) || 1, seized_at: clean(String(item.seizedAt)) || null, location: clean(String(item.location)) || null, notes: clean(String(item.notes)) || null })));
+      const importedApproaches = JSON.parse(String(form.get("approaches") ?? "[]")) as Array<Record<string, unknown>>;
+      if (importedApproaches.length) {
+        const approachInsert = await api.from("approaches").insert(importedApproaches.map((item) => ({
+          person_id: person.id,
+          occurred_at: clean(String(item.occurredAt ?? "")) || null,
+          latitude: Number.isFinite(Number(item.latitude)) ? Number(item.latitude) : null,
+          longitude: Number.isFinite(Number(item.longitude)) ? Number(item.longitude) : null,
+          accuracy_meters: Number(item.accuracyMeters) || null,
+          location_label: clean(String(item.locationLabel ?? "")) || null,
+          notes: clean(String(item.notes ?? "")) || "Importado do Infoseg",
+          operator_id: user.id,
+          operator_email: user.email ?? "",
+        })));
+        if (approachInsert.error) throw approachInsert.error;
+      }
       const files = [...form.getAll("facePhotos"), ...form.getAll("tattoos")].filter((item): item is File => item instanceof File && item.size > 0);
       const kinds = form.getAll("facePhotos").filter((item): item is File => item instanceof File && item.size > 0).length;
       for (const [index, file] of files.entries()) {
