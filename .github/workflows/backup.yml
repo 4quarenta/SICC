@@ -1,0 +1,94 @@
+name: Backup diário do SICC
+
+on:
+  schedule:
+    # 06:00 UTC = 03:00 no horário de Brasília.
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sicc-backup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SICC_STORAGE_BUCKET: ${{ vars.SICC_STORAGE_BUCKET }}
+      RESTIC_PASSWORD: ${{ secrets.BACKUP_RESTIC_PASSWORD }}
+      RCLONE_CONFIG: ${{ runner.temp }}/rclone.conf
+      RESTIC_REPOSITORY: rclone:drive:sicc-backups
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install backup tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends postgresql-client age rclone restic
+
+      - name: Configure Google Drive
+        env:
+          GOOGLE_DRIVE_RCLONE_CONFIG_B64: ${{ secrets.GOOGLE_DRIVE_RCLONE_CONFIG_B64 }}
+        run: |
+          test -n "$GOOGLE_DRIVE_RCLONE_CONFIG_B64"
+          printf '%s' "$GOOGLE_DRIVE_RCLONE_CONFIG_B64" | base64 --decode > "$RCLONE_CONFIG"
+          chmod 600 "$RCLONE_CONFIG"
+          rclone lsd drive: >/dev/null
+
+      - name: Validate required secrets
+        run: |
+          test -n "$SUPABASE_URL"
+          test -n "$SUPABASE_DB_URL"
+          test -n "$SUPABASE_SERVICE_ROLE_KEY"
+          test -n "$RESTIC_PASSWORD"
+
+      - name: Export PostgreSQL database
+        run: |
+          mkdir -p backup-source/database
+          pg_dump "$SUPABASE_DB_URL" \
+            --schema=public \
+            --format=custom \
+            --no-owner \
+            --no-privileges \
+            --file=backup-source/database/public.dump
+          sha256sum backup-source/database/public.dump > backup-source/database/SHA256SUMS
+
+      - name: Download private Supabase Storage
+        run: |
+          node scripts/backup-storage.mjs
+
+      - name: Write backup manifest
+        run: |
+          cat > backup-source/backup.json <<EOF
+          {
+            "created_at_utc": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "repository": "${GITHUB_REPOSITORY}",
+            "commit": "${GITHUB_SHA}",
+            "database_scope": "public",
+            "storage_bucket": "${SICC_STORAGE_BUCKET:-sicc-media}"
+          }
+          EOF
+
+      - name: Initialize encrypted Drive repository
+        run: |
+          if ! restic snapshots >/dev/null 2>&1; then
+            restic init
+          fi
+
+      - name: Send encrypted backup to Google Drive
+        run: |
+          restic backup backup-source --tag sicc --host github-actions
+          restic forget --tag sicc --keep-daily 14 --keep-weekly 4 --prune
+          restic check --read-data-subset=5%
+
+      - name: Clean temporary files
+        if: always()
+        run: rm -rf backup-source "$RCLONE_CONFIG"
