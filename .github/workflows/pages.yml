@@ -33,6 +33,8 @@ jobs:
         run: npm ci --no-audit --no-fund
       - name: Type-check frontend
         run: npm run typecheck
+      - name: Test Infoseg parser
+        run: npm run test:parser
       - name: Build static frontend
         run: npm run build:pages
       - name: Mark artifact as static
