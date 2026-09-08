@@ -62,9 +62,14 @@ export function initOneSignal(externalId: string): Promise<OneSignalSdk> {
           appId: APP_ID,
           safari_web_id: SAFARI_WEB_ID,
           ...workerConfig(),
-          // Do not send OneSignal's generic subscription confirmation. The
-          // SICC should notify only about operational QTCs.
-          welcomeNotification: { disable: true },
+          // Confirm the subscription with a short operational message instead
+          // of OneSignal's generic "Thanks for subscribing" text.
+          welcomeNotification: {
+            disable: false,
+            title: "Notificações ativas",
+            message: "As notificações do SICC estão ativas.",
+            url: "https://4quarenta.github.io/SICC/",
+          },
           notifyButton: { enable: false },
         });
         if (oneSignal.login) await oneSignal.login(String(externalId));
