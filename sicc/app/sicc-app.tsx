@@ -320,6 +320,7 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
   const [logoutConfirm, setLogoutConfirm] = useState(false);
   const [installPrompt, setInstallPrompt] = useState<InstallPromptEvent | null>(null);
   const [isStandalone, setIsStandalone] = useState(false);
+  const [installHelpOpen, setInstallHelpOpen] = useState(false);
 
   const inviteStorageKey = `sicc:invite-links:${operator.id}`;
 
@@ -571,11 +572,18 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
   }
 
   async function installApp() {
-    if (!installPrompt) return;
-    await installPrompt.prompt();
-    const choice = await installPrompt.userChoice;
-    setInstallPrompt(null);
-    if (choice.outcome === "accepted") setIsStandalone(true);
+    if (!installPrompt) {
+      setInstallHelpOpen(true);
+      return;
+    }
+    try {
+      await installPrompt.prompt();
+      const choice = await installPrompt.userChoice;
+      setInstallPrompt(null);
+      if (choice.outcome === "accepted") setIsStandalone(true);
+    } catch {
+      setInstallHelpOpen(true);
+    }
   }
 
   function registerFromSearch() {
@@ -958,8 +966,8 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
                 <span className="eyebrow">ACESSO RÁPIDO</span>
                 <h3 id="install-app-title">{isStandalone ? "SICC já está na tela inicial" : "Adicionar o SICC à tela inicial"}</h3>
                 <p>{isStandalone ? "Abra o sistema diretamente pelo ícone do aparelho, como um aplicativo." : "Use o SICC em tela cheia para consultar e registrar ocorrências com mais rapidez."}</p>
-                {!isStandalone && installPrompt && <button type="button" className="primary install-app-button" onClick={() => void installApp()}>＋ Adicionar à tela inicial</button>}
-                {!isStandalone && !installPrompt && <div className="install-app-help"><b>Como instalar</b><span>No iPhone/iPad: toque em Compartilhar e depois em “Adicionar à Tela de Início”. No Android: abra o menu do navegador e escolha “Instalar aplicativo” ou “Adicionar à tela inicial”.</span></div>}
+                {!isStandalone && <button type="button" className="primary install-app-button" onClick={() => void installApp()}>＋ Adicionar à tela inicial</button>}
+                {!isStandalone && !installPrompt && <small className="install-app-hint">O próximo passo será mostrado conforme o navegador do aparelho.</small>}
               </div>
             </section>
             <div className="invite-panel"><div><b>Convidar operador</b><small>O link expira em 8 horas e permite um único cadastro.</small></div><button className="secondary" disabled={loading || inviteGenerating || bulkInviteGenerating} onClick={() => void createInvite("single")}>{inviteGenerating ? <><span className="mini-loader" aria-hidden="true" /> Gerando link…</> : "Gerar link"}</button>{invite && <div className="invite-code"><strong>Link de uso único</strong><small>Expira em {formatDate(invite.expiresAt)}</small><button onClick={() => void copyInviteLink()}>{inviteCopyStatus === "copied" ? "Copiado ✓" : "Copiar link"}</button><code>{invite.link}</code>{inviteCopyStatus === "copied" && <span className="copy-status success">Link copiado.</span>}{inviteCopyStatus === "error" && <span className="copy-status error">Não foi possível copiar. Selecione o link manualmente.</span>}</div>}</div>
@@ -1108,6 +1116,22 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
             <h2 id="register-notice-title">{registerNotice.kind === "success" ? "Cadastro salvo" : "Revise o cadastro"}</h2>
             <p>{registerNotice.text}</p>
             <button className="primary full-button" onClick={closeRegisterNotice}>Entendi</button>
+          </section>
+        </div>
+      )}
+      {installHelpOpen && (
+        <div className="modal-backdrop install-help-backdrop" onClick={() => setInstallHelpOpen(false)}>
+          <section className="install-help-modal" role="dialog" aria-modal="true" aria-labelledby="install-help-title" onClick={(event) => event.stopPropagation()}>
+            <button type="button" className="close" onClick={() => setInstallHelpOpen(false)} aria-label="Fechar">×</button>
+            <div className="install-help-icon" aria-hidden="true">＋</div>
+            <small className="eyebrow">INSTALAR O SICC</small>
+            <h2 id="install-help-title">Adicionar à tela inicial</h2>
+            <p>O navegador não permite abrir a instalação automaticamente. Siga o passo correspondente ao seu aparelho:</p>
+            <div className="install-help-steps">
+              <div><b>iPhone ou iPad</b><span>Toque em <strong>Compartilhar</strong> e escolha <strong>Adicionar à Tela de Início</strong>.</span></div>
+              <div><b>Android</b><span>Abra o menu <strong>⋮</strong> do navegador e toque em <strong>Instalar aplicativo</strong> ou <strong>Adicionar à tela inicial</strong>.</span></div>
+            </div>
+            <button type="button" className="primary full-button" onClick={() => setInstallHelpOpen(false)}>Entendi</button>
           </section>
         </div>
       )}
