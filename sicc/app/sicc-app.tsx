@@ -1334,14 +1334,16 @@ function AlertsView({ operator }: { operator: Operator }) {
       if (locationLink.trim()) form.set("locationLink", locationLink.trim());
       compacted.forEach((file) => form.append("images", file));
       const response = await apiFetch("/api/alerts", { method: "POST", body: form });
-      const data = await response.json() as { alert?: AlertRecord; pushStatus?: "sent" | "not_configured" | "failed"; error?: string };
+      const data = await response.json() as { alert?: AlertRecord; pushStatus?: "sent" | "not_configured" | "failed" | "no_subscribers"; error?: string };
       if (!response.ok) throw new Error(data.error ?? "Não foi possível publicar o alerta.");
       clearForm(); setShowCreate(false); setAppliedStatusFilter("open"); setStatusFilter("open");
       setNotice(data.pushStatus === "sent"
         ? "QTC publicado e notificação enviada aos assinantes."
         : data.pushStatus === "not_configured"
           ? "QTC publicado, mas as notificações push ainda não estão configuradas no servidor."
-          : "QTC publicado, mas o OneSignal recusou o envio da notificação.");
+          : data.pushStatus === "no_subscribers"
+            ? "QTC publicado, mas nenhum assinante ativo foi encontrado para receber a notificação."
+            : "QTC publicado, mas o OneSignal recusou o envio da notificação.");
       await loadAlerts();
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Não foi possível publicar o alerta.");
