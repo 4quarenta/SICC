@@ -259,6 +259,35 @@ function initials(name: string) {
 }
 
 function rankLabel(rank: string | null | undefined) { const value = (rank ?? "").trim(); const normalized = value.toLowerCase(); const map: Record<string,string> = {"aluno soldado":"AL SD","soldado":"SD","cabo":"CB","3º sargento":"3º SGT","3o sargento":"3º SGT","2º sargento":"2º SGT","2o sargento":"2º SGT","1º sargento":"1º SGT","1o sargento":"1º SGT","subtenente":"ST","cadete":"CAD","aspirante a oficial":"ASP OF","2º tenente":"2º TEN","1º tenente":"1º TEN","capitão":"CAP","major":"MAJ","tenente-coronel":"TEN CEL","coronel":"CEL"}; return map[normalized] ?? value; }
+function invitedByLabel(value: string | null | undefined) {
+  const text = (value ?? "").trim();
+  if (!text) return "Ativação inicial da plataforma";
+  const prefixes: Array<[string, string]> = [
+    ["aluno soldado", "AL SD"],
+    ["aspirante a oficial", "ASP OF"],
+    ["tenente-coronel", "TEN CEL"],
+    ["3º sargento", "3º SGT"],
+    ["3o sargento", "3º SGT"],
+    ["2º sargento", "2º SGT"],
+    ["2o sargento", "2º SGT"],
+    ["1º sargento", "1º SGT"],
+    ["1o sargento", "1º SGT"],
+    ["subtenente", "ST"],
+    ["soldado", "SD"],
+    ["cabo", "CB"],
+    ["cadete", "CAD"],
+    ["2º tenente", "2º TEN"],
+    ["1º tenente", "1º TEN"],
+    ["capitão", "CAP"],
+    ["major", "MAJ"],
+    ["coronel", "CEL"],
+  ];
+  const normalized = text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  const prefix = prefixes.find(([label]) => normalized === label || normalized.startsWith(`${label} `));
+  if (!prefix) return text.toUpperCase();
+  const name = text.slice(prefix[0].length).trim();
+  return prefix[1] + (name ? " " + name.toUpperCase() : "");
+}
 
 function maskCpf(cpf: string) {
   const digits = cpf.replace(/\D/g, "");
@@ -953,11 +982,8 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
           <section className="account-card panel">
             <div className="account-identity"><span className="account-avatar">{initials(operator.name)}</span><div><small>OPERADOR AUTENTICADO</small><h2>{operator.rank ? `${rankLabel(operator.rank)} ${operator.warName}` : operator.name}</h2><p>{operator.email}</p></div></div>
             <dl>
-              <div><dt>Perfil de acesso</dt><dd>{operator.role === "admin" ? "Administrador" : "Operador autorizado"}</dd></div>
-              <div><dt>Ambiente</dt><dd>SICC Beta · interno</dd></div>
               <div><dt>Nível da conta</dt><dd>{operator.role === "admin" ? "Administrador" : "Operador"}</dd></div>
-              <div><dt>Convidado por</dt><dd>{operator.invitedBy ?? "Ativação inicial da plataforma"}</dd></div>
-              <div><dt>Auditoria</dt><dd>Consultas e alterações registradas</dd></div>
+              <div><dt>Convidado por</dt><dd>{invitedByLabel(operator.invitedBy)}</dd></div>
             </dl>
             <div className="warning"><b>Uso pessoal e intransferível</b><small>As ações realizadas no sistema ficam vinculadas a este usuário.</small></div>
             <section className="install-app-card" aria-labelledby="install-app-title">
