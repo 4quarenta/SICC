@@ -8,7 +8,11 @@
   "scripts": {
     "dev": "vite --config vite.pages.config.ts",
     "build": "vite build --config vite.pages.config.ts",
-    "build:pages": "vite build --config vite.pages.config.ts"
+    "build:pages": "vite build --config vite.pages.config.ts",
+    "preview": "vite preview --config vite.pages.config.ts",
+    "typecheck": "tsc --noEmit",
+    "supabase:function:serve": "supabase functions serve sicc-api --no-verify-jwt",
+    "supabase:function:deploy": "supabase functions deploy sicc-api"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.55.0",
