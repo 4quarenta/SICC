@@ -24,6 +24,32 @@ Dados, autenticação e imagens ficam no Supabase.
 O diagnóstico da limpeza está em docs/AUDIT.md. O passo a passo de
 Pages/Supabase está em ../docs/GITHUB-PAGES-SUPABASE.md.
 
+## Backup diário no Google Drive
+
+O workflow `.github/workflows/backup.yml` executa diariamente às 03:00 no
+horário de Brasília e também pode ser iniciado manualmente em Actions. Ele
+exporta o schema `public` do PostgreSQL e copia os arquivos do bucket privado
+do Storage. O conteúdo é armazenado em um repositório Restic criptografado no
+Google Drive, com retenção de 14 backups diários e 4 semanais. Nenhum backup,
+foto ou credencial é salvo no GitHub.
+
+Para ativar o workflow, crie uma configuração OAuth do rclone para uma conta
+Google exclusiva do SICC, usando um remote chamado `drive`, e salve o arquivo
+de configuração em Base64 no secret `GOOGLE_DRIVE_RCLONE_CONFIG_B64`. Depois,
+adicione em Settings → Secrets and variables → Actions:
+
+- `SUPABASE_URL`: URL do projeto Supabase.
+- `SUPABASE_DB_URL`: string de conexão PostgreSQL do menu Connect.
+- `SUPABASE_SERVICE_ROLE_KEY`: chave service role, exclusivamente no secret.
+- `BACKUP_RESTIC_PASSWORD`: senha forte do repositório Restic.
+- `GOOGLE_DRIVE_RCLONE_CONFIG_B64`: configuração OAuth do rclone codificada.
+
+Opcionalmente, defina a variável `SICC_STORAGE_BUCKET`; o padrão é
+`sicc-media`. A senha Restic e o OAuth não podem ser recuperados se forem
+perdidos. Guarde-os também em um gerenciador de senhas. Para restauração,
+instale `restic`, configure o mesmo remote e execute `restic restore latest`;
+depois restaure o dump PostgreSQL e reenvie os arquivos ao Storage privado.
+
 ## Desenvolvimento local
 
 Requisitos: Node.js 22 ou superior.
