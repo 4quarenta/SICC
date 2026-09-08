@@ -540,7 +540,7 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
   }
 
   function registerFromSearch() {
-    const clean = query.trim();
+    const clean = (submittedQuery || query).trim();
     const cpfDigits = clean.replace(/\D/g, "");
     setRegisterDraft({ ...blankRegisterDraft(), ...(cpfDigits.length === 11 ? { cpf: cpfDigits } : { fullName: clean }) });
     void loadFactions();
@@ -888,11 +888,11 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
           </section>
         )}
 
-        {view === "search" && submittedQuery.length >= 3 && visibleResults.length === 0 && (
+        {view === "search" && submittedQuery.length >= 3 && (
           <section className="not-found-action">
-            <b>Essa pessoa ainda não está cadastrada?</b>
-            <span>Crie uma ficha usando o termo pesquisado como ponto de partida.</span>
-            <button className="primary" onClick={registerFromSearch}>＋ Cadastrar esta pessoa</button>
+            <b>Não achou quem procura?</b>
+            <span>{visibleResults.length > 0 ? "Se a pessoa procurada não estiver entre os resultados, cadastre uma nova ficha." : "Cadastre uma nova ficha usando o termo pesquisado como ponto de partida."}</span>
+            <button type="button" className="primary" onClick={registerFromSearch}>＋ Cadastrar pessoa</button>
           </section>
         )}
 
