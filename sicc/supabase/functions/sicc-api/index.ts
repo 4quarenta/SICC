@@ -1,5 +1,7 @@
 import { createClient, type SupabaseClient, type User } from "npm:@supabase/supabase-js@2";
 
+declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void };
+
 const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
 const anonKey = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
 const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
@@ -27,12 +29,24 @@ function fail(message: string, status = 400) { return json({ error: message }, s
 
 type PushDispatchStatus = "sent" | "not_configured" | "failed" | "no_subscribers";
 
-async function notifyNewQtc(category: string, priority: string): Promise<PushDispatchStatus> {
+async function notifyNewQtc(category: string, priority: string, createdBy?: string): Promise<PushDispatchStatus> {
   // A QTC must still be saved if the optional notification provider is
   // unavailable. The REST key never reaches the browser.
   if (!oneSignalAppId || !oneSignalRestApiKey) return "not_configured";
+  const { data: profiles, error: profilesError } = await api
+    .from("operator_profiles")
+    .select("user_id")
+    .neq("user_id", createdBy ?? "00000000-0000-0000-0000-000000000000");
+  if (profilesError) {
+    console.error("OneSignal QTC recipients unavailable", profilesError.message);
+    return "failed";
+  }
+  const externalIds = (profiles ?? [])
+    .map((profile) => String(profile.user_id ?? "").trim())
+    .filter(Boolean);
+  if (externalIds.length === 0) return "no_subscribers";
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 4_500);
+  const timeout = setTimeout(() => controller.abort(), 12_000);
   try {
     const response = await fetch("https://api.onesignal.com/notifications", {
       method: "POST",
@@ -45,7 +59,7 @@ async function notifyNewQtc(category: string, priority: string): Promise<PushDis
         app_id: oneSignalAppId,
         name: `SICC QTC · ${category}`,
         target_channel: "push",
-        included_segments: ["Subscribed Users"],
+        include_aliases: { external_id: externalIds },
         headings: { "pt-BR": "Novo QTC operacional", en: "Novo QTC operacional" },
         contents: { "pt-BR": `${category} · Prioridade ${priority}`, en: `${category} · Prioridade ${priority}` },
         url: webAppUrl,
@@ -673,8 +687,10 @@ async function handleData(path: string, req: Request) {
       const media = await api.from("qtc_alert_media").insert({ alert_id: data.id, object_key: objectKey, original_name: file.name, content_type: file.type, byte_size: file.size, sha256: await sha256Bytes(await file.arrayBuffer()) });
       if (media.error) return fail(media.error.message, 400);
     }
-    const pushStatus = await notifyNewQtc(category.label, category.priority);
-    return json({ alert: (await alertRows([data as Record<string, unknown>]))[0], pushStatus });
+    // The QTC response must not wait for the push provider. Supabase keeps the
+    // dispatch alive after the HTTP response through EdgeRuntime.waitUntil.
+    EdgeRuntime.waitUntil(notifyNewQtc(category.label, category.priority, user.id));
+    return json({ alert: (await alertRows([data as Record<string, unknown>]))[0] });
   }
   const alertMatch = path.match(/^\/alerts\/(\d+)$/);
   if (alertMatch && req.method === "PATCH") {
