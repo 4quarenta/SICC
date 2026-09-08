@@ -12,7 +12,8 @@
     "preview": "vite preview --config vite.pages.config.ts",
     "typecheck": "tsc --noEmit",
     "supabase:function:serve": "supabase functions serve sicc-api --no-verify-jwt",
-    "supabase:function:deploy": "supabase functions deploy sicc-api"
+    "supabase:function:deploy": "supabase functions deploy sicc-api",
+    "test:parser": "node --experimental-strip-types tests/infoseg-parser.test.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.55.0",
