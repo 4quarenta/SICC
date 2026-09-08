@@ -1,3 +1,9 @@
+export type ImportedApproach = {
+  occurredAt: string;
+  locationLabel: string;
+  notes: string;
+};
+
 export type InfosegParseResult = {
   fullName: string;
   motherName: string;
@@ -8,6 +14,7 @@ export type InfosegParseResult = {
   state: string;
   address: string;
   notes: string;
+  approaches: ImportedApproach[];
   confidence: number;
   recognizedFields: string[];
 };
@@ -30,6 +37,7 @@ const ADDRESS_PREFIX = /^(rua|r\.?|avenida|av\.?|travessa|tv\.?|rodovia|rodo\.?|
 const DATE_PATTERN = /\b(\d{2})[\/-](\d{2})[\/-](\d{4})\b/;
 const CITY_STATE_PATTERN = /^(.+?)\s*(?:-|\u2013|\u2014)\s*([A-Za-z]{2})$/;
 const CPF_PATTERN = /(?:^|\D)(\d{3}[.\s]?\d{3}[.\s]?\d{3}[-\s]?\d{2})(?:$|\D)/;
+const APPROACH_PATTERN = /\b(abordagem|abordado|abordada|abordados|abordadas)\b/i;
 
 function clean(value: string) {
   return value.replace(/\u200B/g, "").replace(/\s+/g, " ").trim();
@@ -100,6 +108,33 @@ function addNote(notes: string[], value: string) {
   if (note && !notes.includes(note)) notes.push(note);
 }
 
+function approachLocation(value: string) {
+  const cleaned = stripLeadingMarks(value);
+  const match = cleaned.match(/\b(?:abordagem|abordado|abordada|abordados|abordadas)\b\s*(.*)$/i);
+  return clean(match?.[1] || "");
+}
+
+function isApproachText(value: string) {
+  return APPROACH_PATTERN.test(value) && approachLocation(value).length > 2;
+}
+
+function addApproach(
+  approaches: ImportedApproach[],
+  recognized: Set<string>,
+  value: string,
+  dateHint: string,
+) {
+  const locationLabel = approachLocation(value);
+  if (!locationLabel) return false;
+  approaches.push({
+    occurredAt: parseDate(value) || dateHint,
+    locationLabel,
+    notes: stripLeadingMarks(value),
+  });
+  recognized.add("abordagem");
+  return true;
+}
+
 export function parseInfosegText(rawText: string): InfosegParseResult {
   const sourceLines = rawText
     .split(/\r?\n/)
@@ -131,6 +166,9 @@ export function parseInfosegText(rawText: string): InfosegParseResult {
 
   const recognized = new Set<string>();
   const notes: string[] = [];
+  const approaches: ImportedApproach[] = [];
+  let approachDateHint = "";
+
   const result: InfosegParseResult = {
     fullName: "",
     motherName: "",
@@ -141,6 +179,7 @@ export function parseInfosegText(rawText: string): InfosegParseResult {
     state: "PB",
     address: "",
     notes: "",
+    approaches,
     confidence: 0,
     recognizedFields: [],
   };
@@ -149,6 +188,27 @@ export function parseInfosegText(rawText: string): InfosegParseResult {
     if (!entry.label || !entry.value) continue;
     const kind = labelKind(entry.label.key);
     const value = entry.value;
+
+    if (/^(data abordagem|data da abordagem|data de abordagem|data abordagem ocorrencia)$/.test(entry.label.key)) {
+      approachDateHint = parseDate(value);
+      entry.used = true;
+      if (approachDateHint) recognized.add("data da abordagem");
+      continue;
+    }
+
+    if (/^(abordagem|abordado|abordada|local da abordagem|local abordagem|abordado em)$/.test(entry.label.key)) {
+      const phrase = entry.label.raw + ": " + value;
+      if (addApproach(approaches, recognized, phrase, approachDateHint)) {
+        entry.used = true;
+        continue;
+      }
+    }
+
+    if (isApproachText(value) && addApproach(approaches, recognized, value, approachDateHint)) {
+      entry.used = true;
+      continue;
+    }
+
     if (kind === "fullName") {
       result.fullName = value;
       entry.used = true;
@@ -197,6 +257,12 @@ export function parseInfosegText(rawText: string): InfosegParseResult {
   for (const entry of entries) {
     if (entry.used || entry.label) continue;
     const value = entry.value;
+
+    if (isApproachText(value) && addApproach(approaches, recognized, value, approachDateHint)) {
+      entry.used = true;
+      continue;
+    }
+
     const cpfMatch = value.match(CPF_PATTERN);
     if (!result.cpf && cpfMatch) {
       result.cpf = normalizeCpf(cpfMatch[1]);
@@ -249,6 +315,6 @@ export function parseInfosegText(rawText: string): InfosegParseResult {
   result.notes = notes.join("\n");
   if (result.notes) recognized.add("observações");
   result.recognizedFields = Array.from(recognized);
-  result.confidence = Math.min(100, Math.round((recognized.size / 8) * 100));
+  result.confidence = Math.min(100, Math.round((recognized.size / 9) * 100));
   return result;
 }
