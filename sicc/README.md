@@ -19,7 +19,7 @@ Dados, autenticação e imagens ficam no Supabase.
   operador sempre revisa antes de salvar.
 
 O diagnóstico da limpeza está em docs/AUDIT.md. O passo a passo de
-Pages/Supabase está em docs/GITHUB-PAGES-SUPABASE.md.
+Pages/Supabase está em ../docs/GITHUB-PAGES-SUPABASE.md.
 
 ## Desenvolvimento local
 
