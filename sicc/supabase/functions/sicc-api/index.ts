@@ -26,15 +26,18 @@ function clean(value: FormDataEntryValue | string | null | undefined) {
 async function resolveFactionId(form: FormData): Promise<{ id: number | null; error?: string }> {
   if (clean(form.get("factionAffiliated")) !== "yes") return { id: null };
   const choice = clean(form.get("factionId"));
-  if (choice === "new") {
-    const name = clean(form.get("newFactionName"));
-    if (!name) return { id: null, error: "Informe o nome da nova facção." };
-    const { data, error } = await api.from("factions").insert({ name }).select("id").single();
+  const newName = clean(form.get("newFactionName"));
+  // Safari/iOS pode perder o valor controlado do select no FormData.
+  // Se houver nome de nova facção e a opção não for um ID numérico,
+  // trate explicitamente como criação de nova facção.
+  if (choice === "new" || (newName.length > 0 && !/^\d+$/.test(choice))) {
+    if (!newName) return { id: null, error: "Informe o nome da nova facção." };
+    const { data, error } = await api.from("factions").insert({ name: newName }).select("id").single();
     if (error || !data) return { id: null, error: error?.message ?? "Não foi possível criar a facção." };
     return { id: data.id as number };
   }
   const id = Number(choice);
-  if (!Number.isInteger(id) || id <= 0) return { id: null, error: "Selecione uma facção válida." };
+  if (!Number.isInteger(id) || id <= 0) return { id: null, error: "Selecione uma facção existente ou escolha adicionar uma nova." };
   const { data, error } = await api.from("factions").select("id").eq("id", id).maybeSingle();
   if (error || !data) return { id: null, error: error?.message ?? "A facção selecionada não existe." };
   return { id };
