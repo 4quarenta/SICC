@@ -357,7 +357,10 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
   const [installPrompt, setInstallPrompt] = useState<InstallPromptEvent | null>(null);
   const [isStandalone, setIsStandalone] = useState(false);
   const [installHelpOpen, setInstallHelpOpen] = useState(false);
-  const [oneSignal, setOneSignal] = useState<OneSignalSdk | null>(null);
+  // OneSignal v16 exposes `window.OneSignal` as a class-like static API.
+  // Never put that value in React state: a state setter treats functions/classes
+  // as updater callbacks and Safari/Chrome then throw without `new`.
+  const oneSignalRef = useRef<OneSignalSdk | null>(null);
   const [pushState, setPushState] = useState<"loading" | "unavailable" | "ready" | "enabled" | "denied">("loading");
   const [pushRequesting, setPushRequesting] = useState(false);
 
@@ -473,17 +476,18 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
     void initOneSignal(operator.id)
       .then((sdk) => {
         if (!active) return;
-        setOneSignal(sdk);
+        oneSignalRef.current = sdk;
         const permission = readOneSignalPermission(sdk);
         setPushState(permission === "granted" ? "enabled" : permission === "denied" ? "denied" : "ready");
       })
       .catch(() => {
         if (active) setPushState("unavailable");
       });
-    return () => { active = false; };
+    return () => { active = false; oneSignalRef.current = null; };
   }, [operator.id]);
 
   async function enableQtcNotifications() {
+    const oneSignal = oneSignalRef.current;
     if (!oneSignal || pushRequesting) return;
     setPushRequesting(true);
     try {
