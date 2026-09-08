@@ -1538,9 +1538,12 @@ function EditPersonModal({
   const [removedMediaIds, setRemovedMediaIds] = useState<number[]>([]);
   const [mediaToRemove, setMediaToRemove] = useState<Media | null>(null);
   const [editNotice, setEditNotice] = useState("");
+  const editSubmittingRef = useRef(false);
 
   async function submitEdit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (editSubmittingRef.current) return;
+    editSubmittingRef.current = true;
     onLoading(true);
     onMessage("");
     setEditNotice("");
@@ -1587,6 +1590,7 @@ function EditPersonModal({
       setEditNotice(errorMessage);
       onMessage(errorMessage);
     } finally {
+      editSubmittingRef.current = false;
       onLoading(false);
     }
   }
