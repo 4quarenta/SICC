@@ -322,7 +322,10 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
   const [searchMode, setSearchMode] = useState<SearchMode>("text");
   const [query, setQuery] = useState("");
   const [submittedQuery, setSubmittedQuery] = useState("");
-  const [registerDraft, setRegisterDraft] = useState(blankRegisterDraft);
+  // Pass the computed value, not the function itself. React treats a function
+  // initializer as a lazy state factory; on Safari/minified builds that can
+  // accidentally invoke a class-like value and blank the app before render.
+  const [registerDraft, setRegisterDraft] = useState(blankRegisterDraft());
   const [results, setResults] = useState<Person[]>([]);
   const [selected, setSelected] = useState<Person | null>(null);
   const [loading, setLoading] = useState(false);
@@ -1239,7 +1242,7 @@ function AlertsView({ operator }: { operator: Operator }) {
   const [peopleInfo, setPeopleInfo] = useState("");
   const [vehicleInfo, setVehicleInfo] = useState("");
   const [description, setDescription] = useState("");
-  const [occurredAt, setOccurredAt] = useState(currentBrasiliaDateTime);
+  const [occurredAt, setOccurredAt] = useState(currentBrasiliaDateTime());
   const [locationLink, setLocationLink] = useState("");
   const [images, setImages] = useState<File[]>([]);
   const [previews, setPreviews] = useState<string[]>([]);
