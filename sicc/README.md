@@ -17,6 +17,9 @@ Dados, autenticação e imagens ficam no Supabase.
 - Infoseg: parser local leve, sem envio do texto para terceiros. Ele reconhece
   campos por padrões e classifica linhas não estruturais como observações; o
   operador sempre revisa antes de salvar.
+- OneSignal: Web Push para alertas de QTC. O navegador solicita permissão por
+  ação explícita do operador em qualquer página autenticada; o conteúdo da
+  notificação contém somente categoria e prioridade.
 
 O diagnóstico da limpeza está em docs/AUDIT.md. O passo a passo de
 Pages/Supabase está em ../docs/GITHUB-PAGES-SUPABASE.md.
@@ -57,7 +60,16 @@ secrets da função:
       SUPABASE_SERVICE_ROLE_KEY=... \
       SICC_STORAGE_BUCKET=sicc-media \
       SICC_ALLOWED_ORIGIN=https://4quarenta.github.io \
-      SICC_BOOTSTRAP_KEY=...
+      SICC_BOOTSTRAP_KEY=... \
+      ONESIGNAL_APP_ID=6934d3ea-0e2f-4273-8196-6415d4933815 \
+      ONESIGNAL_REST_API_KEY=... \
+      SICC_WEB_APP_URL=https://4quarenta.github.io/SICC/
+
+`ONESIGNAL_REST_API_KEY` deve ser criada no painel do OneSignal e configurada
+somente como secret da Edge Function. Ela nunca deve entrar no GitHub nem no
+bundle do Pages. O worker do OneSignal fica em
+`/SICC/push/onesignal/OneSignalSDKWorker.js`, em escopo separado do worker PWA
+principal para não substituir o cache/offline da aplicação.
 
 O bucket deve permanecer privado. Uploads são comprimidos no navegador antes
 do envio; a remoção de cadastro/foto remove também o objeto autorizado no
