@@ -603,22 +603,12 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
       return;
     }
     try {
-      if (searchMode === "face") {
-        const embedding = await safeFaceEmbedding(image);
-        if (!embedding) {
-          setMessage("Não foi detectado um rosto nítido na imagem. Use uma foto frontal ou de perfil, com apenas uma pessoa visível.");
-          return;
-        }
-        form.set("faceEmbedding", JSON.stringify(embedding));
-        await reindexMissingFaceEmbeddings();
-      } else {
-        const signature = await safeVisualSignature(image);
-        if (!signature) {
-          setMessage("Não foi possível analisar esta imagem. Use JPG, PNG ou WEBP e tente novamente.");
-          return;
-        }
-        form.set("visualHash", signature);
+      const signature = await safeVisualSignature(image);
+      if (!signature) {
+        setMessage("Não foi possível analisar esta imagem. Use JPG, PNG ou WEBP e tente novamente.");
+        return;
       }
+      form.set("visualHash", signature);
       const response = await apiFetch("/api/search-image", { method: "POST", body: form });
       const data = (await response.json()) as { personIds?: number[]; notice?: string; error?: string };
       if (!response.ok) {
