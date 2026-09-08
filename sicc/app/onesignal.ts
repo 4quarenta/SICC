@@ -1,9 +1,9 @@
-type NotificationPermission = "default" | "granted" | "denied";
+export type NotificationPermission = "default" | "granted" | "denied";
 
 export type OneSignalSdk = {
   Notifications: {
-    permission?: NotificationPermission;
-    requestPermission: () => Promise<NotificationPermission | void>;
+    permission?: boolean;
+    requestPermission: () => Promise<void>;
   };
   login?: (externalId: string) => Promise<void>;
   logout?: () => Promise<void>;
@@ -78,12 +78,17 @@ export function initOneSignal(externalId: string): Promise<OneSignalSdk> {
 }
 
 export async function requestOneSignalPermission(oneSignal: OneSignalSdk) {
-  const result = await oneSignal.Notifications.requestPermission();
-  return (result || oneSignal.Notifications.permission || "default") as NotificationPermission;
+  await oneSignal.Notifications.requestPermission();
+  return readOneSignalPermission(oneSignal);
+}
+
+export function readOneSignalPermission(oneSignal: OneSignalSdk): NotificationPermission {
+  if (oneSignal.Notifications.permission === true) return "granted";
+  if (typeof Notification !== "undefined" && Notification.permission === "denied") return "denied";
+  return "default";
 }
 
 export async function logoutOneSignal() {
   if (sdkInstance?.logout) await sdkInstance.logout();
   sdkInstance = null;
 }
-
