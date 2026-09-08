@@ -11,17 +11,17 @@ export type InfosegParseResult = {
   recognizedFields: string[];
 };
 
-const ADDRESS_PREFIX = /^(rua|r\\.?|avenida|av\\.?|travessa|tv\\.?|rodovia|rodo\\.?|estrada|sítio|sitio|fazenda|praça|praca|alameda|loteamento|bairro)\\b/i;
-const DATE_PATTERN = /^(\\d{2})[\\/-](\\d{2})[\\/-](\\d{4})$/;
-const CITY_STATE_PATTERN = /^(.+?)\\s*(?:-|\\u2013|\\u2014)\\s*([A-Za-z]{2})$/;
-const CPF_PATTERN = /(?:^|\\D)(\\d{3}[.\\s]?\\d{3}[.\\s]?\\d{3}[-\\s]?\\d{2})(?:$|\\D)/;
+const ADDRESS_PREFIX = /^(rua|r\.?|avenida|av\.?|travessa|tv\.?|rodovia|rodo\.?|estrada|sítio|sitio|fazenda|praça|praca|alameda|loteamento|bairro)\b/i;
+const DATE_PATTERN = /^(\d{2})[\/-](\d{2})[\/-](\d{4})$/;
+const CITY_STATE_PATTERN = /^(.+?)\s*(?:-|\u2013|\u2014)\s*([A-Za-z]{2})$/;
+const CPF_PATTERN = /(?:^|\D)(\d{3}[.\s]?\d{3}[.\s]?\d{3}[-\s]?\d{2})(?:$|\D)/;
 
 function clean(value: string) {
-  return value.replace(/\\s+/g, " ").trim();
+  return value.replace(/\s+/g, " ").trim();
 }
 
 function withoutLabel(value: string) {
-  return clean(value).replace(/^(?:obs(?:erva[cç][aã]o)?|observa[cç][aã]o|informa[cç][aã]o)\\s*:\\s*/i, "").trim();
+  return clean(value).replace(/^(?:obs(?:erva[cç][aã]o)?|observa[cç][aã]o|informa[cç][aã]o)\s*:\s*/i, "").trim();
 }
 
 function isLikelyName(value: string) {
@@ -30,7 +30,7 @@ function isLikelyName(value: string) {
 }
 
 function normalizeCpf(value: string) {
-  return value.replace(/\\D/g, "").slice(0, 11);
+  return value.replace(/\D/g, "").slice(0, 11);
 }
 
 function parseDate(value: string) {
@@ -40,7 +40,7 @@ function parseDate(value: string) {
 
 export function parseInfosegText(rawText: string): InfosegParseResult {
   const lines = rawText
-    .split(/\\r?\\n/)
+    .split(/\r?\n/)
     .map((line) => clean(line))
     .filter(Boolean);
 
@@ -85,7 +85,7 @@ export function parseInfosegText(rawText: string): InfosegParseResult {
 
   const addressIndex = lines.findIndex((line, index) => {
     if (used.has(index)) return false;
-    return ADDRESS_PREFIX.test(line) || (\\d{1,5}(?:\\s|$).test(line) && /[A-Za-zÀ-ÿ]/.test(line));
+    return ADDRESS_PREFIX.test(line) || (/\d{1,5}(?:\s|$)/.test(line) && /[A-Za-zÀ-ÿ]/.test(line));
   });
   if (addressIndex >= 0) {
     result.address = lines[addressIndex];
@@ -132,7 +132,7 @@ export function parseInfosegText(rawText: string): InfosegParseResult {
     .filter((line) => !CITY_STATE_PATTERN.test(line) && !DATE_PATTERN.test(line) && !CPF_PATTERN.test(line));
 
   if (noteLines.length > 0) {
-    result.notes = noteLines.join("\\n");
+    result.notes = noteLines.join("\n");
     recognized.add("observações");
   }
 
