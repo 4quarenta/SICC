@@ -26,6 +26,17 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin || url.pathname.includes("/api/")) return;
 
+  // Navigation documents must always revalidate. Otherwise an older worker
+  // can keep returning an index.html that references a removed JS chunk.
+  if (request.mode === "navigate") {
+    event.respondWith(
+      fetch(new Request(request, { cache: "no-store" }))
+        .then((response) => response)
+        .catch(() => caches.match(APP_SCOPE)),
+    );
+    return;
+  }
+
   event.respondWith(
     fetch(request)
       .then((response) => {
