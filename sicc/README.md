@@ -64,7 +64,7 @@ Storage.
 
 - RLS e checagens de papel são aplicados no servidor; o frontend não concede privilégios.
 - Uploads passam por validação de tipo/tamanho e não são gravados em Base64 no PostgreSQL.
-- Busca facial/tatuagem permanece desabilitada no beta até haver um motor servidor homologado e revisão humana. Os modelos versionados são mantidos apenas como asset de compatibilidade futura; não há resultados simulados.
+- Busca facial/tatuagem permanece desabilitada no beta até haver um motor servidor homologado e revisão humana. A dependência e os modelos não fazem parte do bundle ativo; não há resultados simulados.
 - O parser do Infoseg é assistência local determinística, não uma identidade automática. Campos e observações devem ser conferidos pelo operador.
 
 ## Deploy
