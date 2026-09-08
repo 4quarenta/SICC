@@ -29,6 +29,9 @@ Requisitos: Node.js 22 ou superior.
     cp .env.example .env.local
     npm run dev
 
+Para uma checagem local do TypeScript: npm run typecheck.
+Para servir a função localmente, instale o Supabase CLI e use npm run supabase:function:serve.
+
 O build usado em produção é npm run build:pages. Ele gera ../pages-dist, que
 é publicado pelo workflow .github/workflows/pages.yml. O workflow não usa
 Worker, D1, R2 ou filesystem local.
