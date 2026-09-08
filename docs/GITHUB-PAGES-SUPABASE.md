@@ -24,6 +24,6 @@ O build local é:
 
 ```bash
 cd sicc
-npm install
+npm ci
 npm run build:pages
 ```
