@@ -4,6 +4,7 @@ import { ChangeEvent, FormEvent, useEffect, useRef, useState } from "react";
 import { ALERT_CATEGORIES, ALERT_PRIORITY_LABEL, ALERT_PRIORITY_ORDER, type AlertPriority } from "./alert-categories";
 import { LOCALITIES, LOCALITY_CITIES, LOCALITY_STATES } from "./localities";
 import { apiFetch } from "./api-client";
+import { parseInfosegText } from "./infoseg-parser";
 
 type Operator = { id: string; name: string; warName: string; rank: string; email: string; role: "admin" | "operator"; invitedBy: string | null };
 type InviteLink = { id: number; code: string; expiresAt: string; link: string; kind: "single" | "bulk"; revokedAt?: string | null; useCount?: number };
@@ -636,36 +637,27 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
         setMessage("A área de transferência está vazia.");
         return;
       }
-      const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-      const cpfIndex = lines.findIndex((line) => line.replace(/\D/g, "").length === 11);
-      const dateIndex = lines.findIndex((line) => /^\d{2}\/\d{2}\/\d{4}$/.test(line));
-      const addressIndex = lines.findIndex((line) => /^(rua|r\.|avenida|av\.|travessa|tv\.|rodovia|sítio|sitio|fazenda|praça|praca)\b/i.test(line));
-      const cityStateIndex = lines.findIndex((line) => /^.+\s+-\s+[A-Z]{2}$/i.test(line));
-      const cityState = cityStateIndex >= 0 ? lines[cityStateIndex].match(/^(.+?)\s+-\s+([A-Z]{2})$/i) : null;
-      const dateParts = dateIndex >= 0 ? lines[dateIndex].match(/^(\d{2})\/(\d{2})\/(\d{4})$/) : null;
-      const fullName = cpfIndex > 0 ? lines[0] : "";
-      const motherName = cpfIndex > 1 ? lines[1] : "";
-      const cpf = cpfIndex >= 0 ? lines[cpfIndex].replace(/\D/g, "") : "";
-      const structuralIndexes = new Set([0, 1, cpfIndex, dateIndex, addressIndex, cityStateIndex].filter((index) => index >= 0));
-      const notes = lines
-        .filter((_, index) => !structuralIndexes.has(index))
-        .map((line) => line.replace(/^obs(?:ervaç(?:ão|ao))?\s*:\s*/i, "").trim())
-        .filter(Boolean)
-        .join("\n");
-      const address = addressIndex >= 0 ? lines[addressIndex] : "";
-
-      setRegisterDraft({
-        fullName,
-        motherName,
-        cpf,
-        birthDate: dateParts ? `${dateParts[3]}-${dateParts[2]}-${dateParts[1]}` : "",
-        city: cityState?.[1]?.trim() ?? "",
-        state: cityState?.[2]?.toUpperCase() ?? "PB",
-        notes,
-      });
-      setAddresses(address ? [{ ...blankAddress(), address, city: cityState?.[1]?.trim() ?? "", state: cityState?.[2]?.toUpperCase() ?? "PB" }] : [blankAddress()]);
-      const recognized = [fullName, motherName, cpf, dateParts, address, cityState, notes].filter(Boolean).length;
-      setMessage(recognized >= 4 ? "Dados do Infoseg preenchidos, incluindo as linhas adicionais em observações. Revise todos os campos antes de salvar." : "O texto foi lido, mas poucos campos foram reconhecidos. Revise e complete o cadastro manualmente.");
+      const parsed = parseInfosegText(text);
+      setRegisterDraft((draft) => ({
+        ...draft,
+        fullName: parsed.fullName || draft.fullName,
+        motherName: parsed.motherName || draft.motherName,
+        cpf: parsed.cpf || draft.cpf,
+        birthDate: parsed.birthDate || draft.birthDate,
+        city: parsed.city || draft.city,
+        state: parsed.state || draft.state,
+        notes: parsed.notes || draft.notes,
+      }));
+      setAddresses(parsed.address
+        ? [{ ...blankAddress(), address: parsed.address, city: parsed.city, state: parsed.state }]
+        : [blankAddress()]);
+      const recognized = parsed.recognizedFields.length;
+      const confidence = parsed.confidence;
+      setMessage(
+        recognized >= 4
+          ? `Leitura assistida concluída (${confidence}% de confiança): ${parsed.recognizedFields.join(", ")}. Revise os campos antes de salvar.`
+          : "O texto foi lido, mas poucos campos foram reconhecidos. Revise e complete o cadastro manualmente."
+      );
     } catch {
       setMessage("Não foi possível ler a área de transferência. Autorize o acesso e tente novamente.");
     }
