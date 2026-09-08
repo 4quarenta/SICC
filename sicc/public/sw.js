@@ -1,4 +1,6 @@
-const CACHE_NAME = "sicc-static-v2";
+// Bump the cache whenever the runtime bundle changes so Safari/iOS does not
+// keep executing an older bundle after a Pages deployment.
+const CACHE_NAME = "sicc-static-v3";
 const APP_SCOPE = self.registration.scope;
 
 self.addEventListener("install", (event) => {
