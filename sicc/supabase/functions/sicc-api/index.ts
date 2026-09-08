@@ -32,6 +32,9 @@ async function resolveFactionId(form: FormData): Promise<{ id: number | null; er
   // trate explicitamente como criação de nova facção.
   if (choice === "new" || (newName.length > 0 && !/^\d+$/.test(choice))) {
     if (!newName) return { id: null, error: "Informe o nome da nova facção." };
+    const { data: existing, error: existingError } = await api.from("factions").select("id").ilike("name", newName).maybeSingle();
+    if (existingError) return { id: null, error: existingError.message };
+    if (existing) return { id: existing.id as number };
     const { data, error } = await api.from("factions").insert({ name: newName }).select("id").single();
     if (error || !data) return { id: null, error: error?.message ?? "Não foi possível criar a facção." };
     return { id: data.id as number };
