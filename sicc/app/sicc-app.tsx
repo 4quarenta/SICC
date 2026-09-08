@@ -41,6 +41,10 @@ type GeoPoint = { latitude: string; longitude: string; accuracyMeters: string };
 type View = "search" | "register" | "account" | "operators" | "records" | "alerts";
 type SearchMode = "text" | "face" | "tattoo";
 type RegisterNotice = { kind: "success" | "error"; text: string };
+type InstallPromptEvent = Event & {
+  prompt: () => Promise<void>;
+  userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
+};
 
 // Keep image-based searches unavailable until they are explicitly reviewed
 // and re-enabled. Photos used in records remain unaffected.
@@ -314,6 +318,8 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
   const [activeInvites, setActiveInvites] = useState<InviteLink[]>([]);
   const [totalPeopleCount, setTotalPeopleCount] = useState<number | null>(null);
   const [logoutConfirm, setLogoutConfirm] = useState(false);
+  const [installPrompt, setInstallPrompt] = useState<InstallPromptEvent | null>(null);
+  const [isStandalone, setIsStandalone] = useState(false);
 
   const inviteStorageKey = `sicc:invite-links:${operator.id}`;
 
@@ -395,6 +401,31 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
       .catch(() => {});
     return () => { active = false; };
   }, [operator.id]);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia("(display-mode: standalone)");
+    const updateStandalone = () => {
+      const iosStandalone = Boolean((navigator as Navigator & { standalone?: boolean }).standalone);
+      setIsStandalone(mediaQuery.matches || iosStandalone);
+    };
+    const handleBeforeInstallPrompt = (event: Event) => {
+      event.preventDefault();
+      setInstallPrompt(event as InstallPromptEvent);
+    };
+    const handleInstalled = () => {
+      setInstallPrompt(null);
+      setIsStandalone(true);
+    };
+    updateStandalone();
+    mediaQuery.addEventListener?.("change", updateStandalone);
+    window.addEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+    window.addEventListener("appinstalled", handleInstalled);
+    return () => {
+      mediaQuery.removeEventListener?.("change", updateStandalone);
+      window.removeEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+      window.removeEventListener("appinstalled", handleInstalled);
+    };
+  }, []);
 
   const firstName = operator.name.split(" ")[0] || "Operador";
   const title = view === "register" ? "Novo cadastro" : view === "account" ? "Minha conta" : view === "operators" ? "Operadores" : view === "records" ? "Cadastros" : view === "alerts" ? "Alertas operacionais" : "Consulta de pessoas";
@@ -537,6 +568,14 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
       window.clearTimeout(timeout);
       setLoading(false);
     }
+  }
+
+  async function installApp() {
+    if (!installPrompt) return;
+    await installPrompt.prompt();
+    const choice = await installPrompt.userChoice;
+    setInstallPrompt(null);
+    if (choice.outcome === "accepted") setIsStandalone(true);
   }
 
   function registerFromSearch() {
@@ -913,6 +952,16 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
               <div><dt>Auditoria</dt><dd>Consultas e alterações registradas</dd></div>
             </dl>
             <div className="warning"><b>Uso pessoal e intransferível</b><small>As ações realizadas no sistema ficam vinculadas a este usuário.</small></div>
+            <section className="install-app-card" aria-labelledby="install-app-title">
+              <div className="install-app-icon" aria-hidden="true">＋</div>
+              <div className="install-app-copy">
+                <span className="eyebrow">ACESSO RÁPIDO</span>
+                <h3 id="install-app-title">{isStandalone ? "SICC já está na tela inicial" : "Adicionar o SICC à tela inicial"}</h3>
+                <p>{isStandalone ? "Abra o sistema diretamente pelo ícone do aparelho, como um aplicativo." : "Use o SICC em tela cheia para consultar e registrar ocorrências com mais rapidez."}</p>
+                {!isStandalone && installPrompt && <button type="button" className="primary install-app-button" onClick={() => void installApp()}>＋ Adicionar à tela inicial</button>}
+                {!isStandalone && !installPrompt && <div className="install-app-help"><b>Como instalar</b><span>No iPhone/iPad: toque em Compartilhar e depois em “Adicionar à Tela de Início”. No Android: abra o menu do navegador e escolha “Instalar aplicativo” ou “Adicionar à tela inicial”.</span></div>}
+              </div>
+            </section>
             <div className="invite-panel"><div><b>Convidar operador</b><small>O link expira em 8 horas e permite um único cadastro.</small></div><button className="secondary" disabled={loading || inviteGenerating || bulkInviteGenerating} onClick={() => void createInvite("single")}>{inviteGenerating ? <><span className="mini-loader" aria-hidden="true" /> Gerando link…</> : "Gerar link"}</button>{invite && <div className="invite-code"><strong>Link de uso único</strong><small>Expira em {formatDate(invite.expiresAt)}</small><button onClick={() => void copyInviteLink()}>{inviteCopyStatus === "copied" ? "Copiado ✓" : "Copiar link"}</button><code>{invite.link}</code>{inviteCopyStatus === "copied" && <span className="copy-status success">Link copiado.</span>}{inviteCopyStatus === "error" && <span className="copy-status error">Não foi possível copiar. Selecione o link manualmente.</span>}</div>}</div>
              {operator.role === "admin" && <div className="invite-panel bulk-invite-panel"><div><b>Link para vários cadastros</b><small>Exclusivo do administrador. Pode ser usado por várias pessoas até expirar ou ser revogado.</small></div><button className="secondary" disabled={loading || inviteGenerating || bulkInviteGenerating} onClick={() => void createInvite("bulk")}>{bulkInviteGenerating ? <><span className="mini-loader" aria-hidden="true" /> Gerando link…</> : "Gerar link reutilizável"}</button>{bulkInvite && <div className="invite-code"><strong>{bulkInvite.revokedAt ? "Link revogado" : "Link reutilizável ativo"}</strong><small>Expira em {formatDate(bulkInvite.expiresAt)} · Usado por {bulkInvite.useCount ?? 0} pessoa(s)</small><button disabled={Boolean(bulkInvite.revokedAt)} onClick={() => void copyInviteLink("bulk")}>{bulkInviteCopyStatus === "copied" ? "Copiado ✓" : "Copiar link"}</button><code>{bulkInvite.link}</code>{!bulkInvite.revokedAt && <button type="button" className="danger-outline" onClick={() => setBulkInviteConfirm(true)}>Revogar link</button>}{bulkInviteCopyStatus === "copied" && <span className="copy-status success">Link copiado.</span>}{bulkInviteCopyStatus === "error" && <span className="copy-status error">Não foi possível copiar. Selecione o link manualmente.</span>}</div>}{bulkInviteConfirm && <ConfirmModal title="Revogar link reutilizável?" message="Novos cadastros não poderão mais usar este link. Cadastros já concluídos permanecem ativos." confirmLabel="Revogar link" onCancel={() => setBulkInviteConfirm(false)} onConfirm={async () => { setBulkInviteConfirm(false); await revokeBulkInvite(); }} />}</div>}
              {activeInvites.filter((item) => item.id !== invite?.id && item.id !== bulkInvite?.id).length > 0 && <div className="invite-panel active-invites-panel"><div><b>Outros links ativos</b><small>Links permanecem disponíveis até expirar ou serem utilizados.</small></div>{activeInvites.filter((item) => item.id !== invite?.id && item.id !== bulkInvite?.id).map((item) => <div className="invite-code" key={item.id}><strong>{item.kind === "bulk" ? "Link reutilizável ativo" : "Link de uso único"}</strong><small>Expira em {formatDate(item.expiresAt)}{item.kind === "bulk" && item.useCount ? ` · ${item.useCount} uso(s)` : ""}</small><button onClick={() => void copySpecificInvite(item)}>Copiar link</button><code>{item.link}</code></div>)}</div>}
