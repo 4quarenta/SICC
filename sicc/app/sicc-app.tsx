@@ -248,7 +248,7 @@ async function safeVisualSignature(file: File) {
 }
 
 const blankObject = (): SeizedObject => ({ description: "", seizedAt: currentBrasiliaDate() });
-const blankRegisterDraft = () => ({ fullName: "", cpf: "", birthDate: "", motherName: "", city: "", state: "PB", notes: "" });
+const blankRegisterDraft = () => ({ fullName: "", nickname: "", cpf: "", birthDate: "", motherName: "", city: "", state: "PB", notes: "" });
 
 function initials(name: string) {
   return name.split(" ").filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toUpperCase();
@@ -562,6 +562,7 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
       setRegisterDraft((draft) => ({
         ...draft,
         fullName: parsed.fullName || draft.fullName,
+        nickname: parsed.nickname || draft.nickname,
         motherName: parsed.motherName || draft.motherName,
         cpf: parsed.cpf || draft.cpf,
         birthDate: parsed.birthDate || draft.birthDate,
@@ -923,7 +924,7 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
               <div className="form-grid">
                 <label className="wide">Nome completo *<input name="fullName" required minLength={3} value={registerDraft.fullName} onChange={(event) => setRegisterDraft((draft) => ({ ...draft, fullName: event.target.value }))} placeholder="Informe o nome civil" /></label>
                 <label>CPF *<input name="cpf" required inputMode="numeric" value={registerDraft.cpf} onChange={(event) => setRegisterDraft((draft) => ({ ...draft, cpf: event.target.value }))} placeholder="000.000.000-00" /></label>
-                <label>Alcunha<input name="nickname" placeholder="Nome pelo qual é conhecido" /></label>
+                <label>Alcunha<input name="nickname" value={registerDraft.nickname} onChange={(event) => setRegisterDraft((draft) => ({ ...draft, nickname: event.target.value }))} placeholder="Nome pelo qual é conhecido" /></label>
                 <label>Data de nascimento<input name="birthDate" type="date" value={registerDraft.birthDate} onChange={(event) => setRegisterDraft((draft) => ({ ...draft, birthDate: event.target.value }))} /></label>
                 <label>Nome da mãe<input name="motherName" value={registerDraft.motherName} onChange={(event) => setRegisterDraft((draft) => ({ ...draft, motherName: event.target.value }))} placeholder="Auxilia a confirmação de identidade" /></label>
                 <label>Cidade de referência<input name="city" value={registerDraft.city} onChange={(event) => setRegisterDraft((draft) => ({ ...draft, city: event.target.value }))} placeholder="Município" /></label>
