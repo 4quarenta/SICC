@@ -5,6 +5,7 @@ import { ALERT_CATEGORIES, ALERT_PRIORITY_LABEL, ALERT_PRIORITY_ORDER, type Aler
 import { LOCALITIES, LOCALITY_CITIES, LOCALITY_STATES } from "./localities";
 import { apiFetch } from "./api-client";
 import { parseInfosegText } from "./infoseg-parser";
+import { initOneSignal, logoutOneSignal, requestOneSignalPermission, type OneSignalSdk } from "./onesignal";
 
 type Operator = { id: string; name: string; warName: string; rank: string; email: string; role: "admin" | "operator"; invitedBy: string | null };
 type InviteLink = { id: number; code: string; expiresAt: string; link: string; kind: "single" | "bulk"; revokedAt?: string | null; useCount?: number };
@@ -353,6 +354,9 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
   const [installPrompt, setInstallPrompt] = useState<InstallPromptEvent | null>(null);
   const [isStandalone, setIsStandalone] = useState(false);
   const [installHelpOpen, setInstallHelpOpen] = useState(false);
+  const [oneSignal, setOneSignal] = useState<OneSignalSdk | null>(null);
+  const [pushState, setPushState] = useState<"loading" | "unavailable" | "ready" | "enabled" | "denied">("loading");
+  const [pushRequesting, setPushRequesting] = useState(false);
 
   const inviteStorageKey = `sicc:invite-links:${operator.id}`;
 
@@ -459,6 +463,35 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
       window.removeEventListener("appinstalled", handleInstalled);
     };
   }, []);
+
+  useEffect(() => {
+    let active = true;
+    setPushState("loading");
+    void initOneSignal(operator.id)
+      .then((sdk) => {
+        if (!active) return;
+        setOneSignal(sdk);
+        const permission = sdk.Notifications.permission;
+        setPushState(permission === "granted" ? "enabled" : permission === "denied" ? "denied" : "ready");
+      })
+      .catch(() => {
+        if (active) setPushState("unavailable");
+      });
+    return () => { active = false; };
+  }, [operator.id]);
+
+  async function enableQtcNotifications() {
+    if (!oneSignal || pushRequesting) return;
+    setPushRequesting(true);
+    try {
+      const permission = await requestOneSignalPermission(oneSignal);
+      setPushState(permission === "granted" ? "enabled" : permission === "denied" ? "denied" : "ready");
+    } catch {
+      setPushState("unavailable");
+    } finally {
+      setPushRequesting(false);
+    }
+  }
 
   const firstName = operator.name.split(" ")[0] || "Operador";
   const title = view === "register" ? "Novo cadastro" : view === "account" ? "Minha conta" : view === "operators" ? "Operadores" : view === "records" ? "Cadastros" : view === "alerts" ? "Alertas operacionais" : "Consulta de pessoas";
@@ -922,6 +955,16 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
       </aside>
 
       <main className={`content view-${view}`}>
+        {(pushState === "ready" || pushState === "denied") && (
+          <section className={`push-permission-banner ${pushState === "denied" ? "denied" : ""}`} role="status">
+            <div className="push-permission-icon" aria-hidden="true">⌁</div>
+            <div className="push-permission-copy">
+              <strong>{pushState === "denied" ? "Notificações bloqueadas" : "Receba alertas de QTC"}</strong>
+              <span>{pushState === "denied" ? "Permita notificações nas configurações do navegador para receber novos alertas." : "Ative as notificações para saber quando um novo QTC for publicado. Enviaremos somente categoria e prioridade."}</span>
+            </div>
+            {pushState === "ready" && <button type="button" className="secondary" onClick={() => void enableQtcNotifications()} disabled={pushRequesting}>{pushRequesting ? "Ativando…" : "Ativar notificações"}</button>}
+          </section>
+        )}
         <section className="page-heading">
           <span>VISÃO OPERACIONAL</span>
           <h1>{title}</h1>
@@ -1164,7 +1207,7 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
           </section>
         </div>
       )}
-      {logoutConfirm && <ConfirmModal title="Sair da conta?" message="A sessão atual será encerrada neste dispositivo." confirmLabel="Sair" onCancel={() => setLogoutConfirm(false)} onConfirm={async () => { setLogoutConfirm(false); await onLogout(); }} />}
+      {logoutConfirm && <ConfirmModal title="Sair da conta?" message="A sessão atual será encerrada neste dispositivo." confirmLabel="Sair" onCancel={() => setLogoutConfirm(false)} onConfirm={async () => { setLogoutConfirm(false); await logoutOneSignal(); await onLogout(); }} />}
     </div>
   );
 }
