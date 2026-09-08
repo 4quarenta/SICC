@@ -4,6 +4,9 @@ const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
 const anonKey = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
 const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const bucket = Deno.env.get("SICC_STORAGE_BUCKET") ?? "sicc-media";
+const oneSignalAppId = Deno.env.get("ONESIGNAL_APP_ID") ?? "";
+const oneSignalRestApiKey = Deno.env.get("ONESIGNAL_REST_API_KEY") ?? "";
+const webAppUrl = Deno.env.get("SICC_WEB_APP_URL") ?? "https://4quarenta.github.io/SICC/";
 const api = createClient(supabaseUrl, serviceRoleKey);
 
 const corsHeaders = {
@@ -18,6 +21,38 @@ function json(body: unknown, status = 200) {
 }
 
 function fail(message: string, status = 400) { return json({ error: message }, status); }
+
+async function notifyNewQtc(category: string, priority: string) {
+  // A QTC must still be saved if the optional notification provider is
+  // unavailable. The REST key never reaches the browser.
+  if (!oneSignalAppId || !oneSignalRestApiKey) return;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 4_500);
+  try {
+    const response = await fetch("https://api.onesignal.com/notifications", {
+      method: "POST",
+      signal: controller.signal,
+      headers: {
+        "content-type": "application/json; charset=utf-8",
+        authorization: `Key ${oneSignalRestApiKey}`,
+      },
+      body: JSON.stringify({
+        app_id: oneSignalAppId,
+        target_channel: "push",
+        included_segments: ["Subscribed Users"],
+        headings: { "pt-BR": "Novo QTC operacional", en: "Novo QTC operacional" },
+        contents: { "pt-BR": `${category} · Prioridade ${priority}`, en: `${category} · Prioridade ${priority}` },
+        url: webAppUrl,
+        data: { type: "qtc", category, priority },
+      }),
+    });
+    if (!response.ok) console.error("OneSignal QTC notification failed", response.status);
+  } catch (error) {
+    console.error("OneSignal QTC notification unavailable", error instanceof Error ? error.message : "unknown");
+  } finally {
+    clearTimeout(timeout);
+  }
+}
 
 function clean(value: FormDataEntryValue | string | null | undefined) {
   return typeof value === "string" ? value.trim() : "";
@@ -620,6 +655,7 @@ async function handleData(path: string, req: Request) {
       const media = await api.from("qtc_alert_media").insert({ alert_id: data.id, object_key: objectKey, original_name: file.name, content_type: file.type, byte_size: file.size, sha256: await sha256Bytes(await file.arrayBuffer()) });
       if (media.error) return fail(media.error.message, 400);
     }
+    await notifyNewQtc(category.label, category.priority);
     return json({ alert: (await alertRows([data as Record<string, unknown>]))[0] });
   }
   const alertMatch = path.match(/^\/alerts\/(\d+)$/);
