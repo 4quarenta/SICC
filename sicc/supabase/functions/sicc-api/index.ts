@@ -22,7 +22,7 @@ function json(body: unknown, status = 200) {
 
 function fail(message: string, status = 400) { return json({ error: message }, status); }
 
-type PushDispatchStatus = "sent" | "not_configured" | "failed";
+type PushDispatchStatus = "sent" | "not_configured" | "failed" | "no_subscribers";
 
 async function notifyNewQtc(category: string, priority: string): Promise<PushDispatchStatus> {
   // A QTC must still be saved if the optional notification provider is
@@ -48,9 +48,16 @@ async function notifyNewQtc(category: string, priority: string): Promise<PushDis
         data: { type: "qtc", category, priority },
       }),
     });
+    const responseBody = await response.text();
     if (!response.ok) {
-      console.error("OneSignal QTC notification failed", response.status);
+      console.error("OneSignal QTC notification failed", response.status, responseBody.slice(0, 500));
       return "failed";
+    }
+    try {
+      const result = JSON.parse(responseBody) as { recipients?: number };
+      if (typeof result.recipients === "number" && result.recipients === 0) return "no_subscribers";
+    } catch {
+      // A successful response without JSON is still treated as accepted.
     }
     return "sent";
   } catch (error) {
