@@ -40,7 +40,11 @@ const CPF_PATTERN = /(?:^|\D)(\d{3}[.\s]?\d{3}[.\s]?\d{3}[-\s]?\d{2})(?:$|\D)/;
 const APPROACH_PATTERN = /\b(abordagem|abordado|abordada|abordados|abordadas)\b/i;
 
 function clean(value: string) {
-  return value.replace(/\u200B/g, "").replace(/\s+/g, " ").trim();
+  return value
+    .replace(/[\u200B-\u200F\u202A-\u202E\u2060-\u206F\uFEFF]/g, "")
+    .replace(/\u00A0/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function stripLeadingMarks(value: string) {
@@ -76,13 +80,19 @@ function parseDate(value: string) {
 
 function extractLabel(raw: string): LabelInfo | null {
   const normalized = stripLeadingMarks(raw);
-  const match = normalized.match(/^([^:]{1,45}):\s*(.*)$/);
-  if (!match) return null;
-  return {
-    raw: clean(match[1]),
-    key: normalizeLabel(match[1]),
-    value: clean(match[2]),
-  };
+  const match = normalized.match(/^([^:：﹕]{1,45})[:：﹕]\s*(.*)$/);
+  if (match) {
+    return {
+      raw: clean(match[1]),
+      key: normalizeLabel(match[1]),
+      value: clean(match[2]),
+    };
+  }
+  const key = normalizeLabel(normalized);
+  if (/^(nome|nome completo|vulgo|alcunha|apelido|filiacao|filiacao 1|mae|nome da mae|cpf|data de nascimento|data nascimento|nascimento|dt nascimento|endereco|residencia|moradia|cidade|municipio|uf|estado|observacao|observacoes|obs|informacao|informacoes|sexo|profissao|tipificacao|data abordagem|data da abordagem|data de abordagem)$/.test(key)) {
+    return { raw: clean(normalized), key, value: "" };
+  }
+  return null;
 }
 
 function labelKind(key: string) {
@@ -137,7 +147,8 @@ function addApproach(
 
 export function parseInfosegText(rawText: string): InfosegParseResult {
   const sourceLines = rawText
-    .split(/\r?\n/)
+    .replace(/\r\n?|\u0085|\u2028|\u2029/g, "\n")
+    .split("\n")
     .map((line) => clean(line))
     .filter(Boolean);
 
