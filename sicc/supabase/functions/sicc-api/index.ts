@@ -43,6 +43,7 @@ async function notifyNewQtc(category: string, priority: string): Promise<PushDis
       },
       body: JSON.stringify({
         app_id: oneSignalAppId,
+        name: `SICC QTC · ${category}`,
         target_channel: "push",
         included_segments: ["Subscribed Users"],
         headings: { "pt-BR": "Novo QTC operacional", en: "Novo QTC operacional" },
