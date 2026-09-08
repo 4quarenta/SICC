@@ -23,8 +23,7 @@ jobs:
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       SICC_STORAGE_BUCKET: ${{ vars.SICC_STORAGE_BUCKET }}
       RESTIC_PASSWORD: ${{ secrets.BACKUP_RESTIC_PASSWORD }}
-      RCLONE_CONFIG: ${{ runner.temp }}/rclone.conf
-      RESTIC_REPOSITORY: rclone:drive:sicc-backups
+      RESTIC_REPOSITORY: rclone:drive:SICC-Backups
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -39,6 +38,8 @@ jobs:
           GOOGLE_DRIVE_RCLONE_CONFIG_B64: ${{ secrets.GOOGLE_DRIVE_RCLONE_CONFIG_B64 }}
         run: |
           test -n "$GOOGLE_DRIVE_RCLONE_CONFIG_B64"
+          export RCLONE_CONFIG="$RUNNER_TEMP/rclone.conf"
+          printf 'RCLONE_CONFIG=%s\n' "$RCLONE_CONFIG" >> "$GITHUB_ENV"
           printf '%s' "$GOOGLE_DRIVE_RCLONE_CONFIG_B64" | base64 --decode > "$RCLONE_CONFIG"
           chmod 600 "$RCLONE_CONFIG"
           rclone lsd drive: >/dev/null
