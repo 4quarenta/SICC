@@ -26,9 +26,9 @@ pelo build ativo:
   referência no frontend.
 
 Também foram removidas referências de Next/Vercel/Worker do tsconfig e do
-.gitignore. O modelo de domínio visual foi mantido em public/models/face-api
-porque é um asset versionado do fluxo de imagem planejado; a busca permanece
-desabilitada e nenhum resultado é simulado.
+.gitignore. Os modelos de face-api também foram removidos: a busca visual está
+desabilitada, a dependência não faz parte do build ativo e não há resultados
+simulados.
 
 ## Dados e segredos
 
