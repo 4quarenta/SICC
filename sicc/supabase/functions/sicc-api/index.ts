@@ -458,7 +458,7 @@ async function handleData(path: string, req: Request) {
       if (importedApproaches.length) {
         const approachInsert = await api.from("approaches").insert(importedApproaches.map((item) => ({
           person_id: person.id,
-          occurred_at: clean(String(item.occurredAt ?? "")) || null,
+          occurred_at: clean(String(item.occurredAt ?? "")) || new Date().toISOString(),
           latitude: Number.isFinite(Number(item.latitude)) ? Number(item.latitude) : null,
           longitude: Number.isFinite(Number(item.longitude)) ? Number(item.longitude) : null,
           accuracy_meters: Number(item.accuracyMeters) || null,
