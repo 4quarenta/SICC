@@ -129,10 +129,6 @@ export function parseInfosegText(rawText: string): InfosegParseResult {
     });
   });
 
-  if (pendingLabel) {
-    entries.push({ index: sourceLines.length, raw: pendingLabel.raw, value: "", label: pendingLabel, used: false });
-  }
-
   const recognized = new Set<string>();
   const notes: string[] = [];
   const result: InfosegParseResult = {
