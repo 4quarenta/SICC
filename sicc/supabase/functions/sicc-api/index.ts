@@ -4,8 +4,11 @@ const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
 const anonKey = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
 const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const bucket = Deno.env.get("SICC_STORAGE_BUCKET") ?? "sicc-media";
-const oneSignalAppId = Deno.env.get("ONESIGNAL_APP_ID") ?? "";
-const oneSignalRestApiKey = Deno.env.get("ONESIGNAL_REST_API_KEY") ?? "";
+// The App ID is public and also embedded in the frontend. Keep an explicit
+// fallback so push delivery does not silently stop when only the secret was
+// configured in Supabase.
+const oneSignalAppId = (Deno.env.get("ONESIGNAL_APP_ID") ?? "6934d3ea-0e2f-4273-8196-6415d4933815").trim();
+const oneSignalRestApiKey = (Deno.env.get("ONESIGNAL_REST_API_KEY") ?? "").trim();
 const webAppUrl = Deno.env.get("SICC_WEB_APP_URL") ?? "https://4quarenta.github.io/SICC/";
 const api = createClient(supabaseUrl, serviceRoleKey);
 
