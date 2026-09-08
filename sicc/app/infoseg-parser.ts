@@ -1,6 +1,7 @@
 export type InfosegParseResult = {
   fullName: string;
   motherName: string;
+  nickname: string;
   cpf: string;
   birthDate: string;
   city: string;
@@ -11,13 +12,40 @@ export type InfosegParseResult = {
   recognizedFields: string[];
 };
 
-const ADDRESS_PREFIX = /^(rua|r\.?|avenida|av\.?|travessa|tv\.?|rodovia|rodo\.?|estrada|sítio|sitio|fazenda|praça|praca|alameda|loteamento|bairro)\b/i;
-const DATE_PATTERN = /^(\d{2})[\/-](\d{2})[\/-](\d{4})$/;
+type LabelInfo = {
+  raw: string;
+  key: string;
+  value: string;
+};
+
+type Entry = {
+  index: number;
+  raw: string;
+  value: string;
+  label: LabelInfo | null;
+  used: boolean;
+};
+
+const ADDRESS_PREFIX = /^(rua|r\.?|avenida|av\.?|travessa|tv\.?|rodovia|rodo\.?|estrada|sítio|sitio|fazenda|praça|praca|alameda|loteamento|bairro|mora\b|reside\b|domicilia\b)/i;
+const DATE_PATTERN = /\b(\d{2})[\/-](\d{2})[\/-](\d{4})\b/;
 const CITY_STATE_PATTERN = /^(.+?)\s*(?:-|\u2013|\u2014)\s*([A-Za-z]{2})$/;
 const CPF_PATTERN = /(?:^|\D)(\d{3}[.\s]?\d{3}[.\s]?\d{3}[-\s]?\d{2})(?:$|\D)/;
 
 function clean(value: string) {
-  return value.replace(/\s+/g, " ").trim();
+  return value.replace(/\u200B/g, "").replace(/\s+/g, " ").trim();
+}
+
+function stripLeadingMarks(value: string) {
+  return clean(value).replace(/^[^\p{L}\p{N}]*/u, "").trim();
+}
+
+function normalizeLabel(value: string) {
+  return stripLeadingMarks(value)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function withoutLabel(value: string) {
@@ -25,7 +53,7 @@ function withoutLabel(value: string) {
 }
 
 function isLikelyName(value: string) {
-  const words = clean(value).split(" ").filter(Boolean);
+  const words = stripLeadingMarks(value).split(" ").filter(Boolean);
   return words.length >= 2 && words.every((word) => /^[A-Za-zÀ-ÿ'’-]+$/.test(word));
 }
 
@@ -35,20 +63,82 @@ function normalizeCpf(value: string) {
 
 function parseDate(value: string) {
   const match = value.match(DATE_PATTERN);
-  return match ? `${match[3]}-${match[2]}-${match[1]}` : "";
+  return match ? match[3] + "-" + match[2] + "-" + match[1] : "";
+}
+
+function extractLabel(raw: string): LabelInfo | null {
+  const normalized = stripLeadingMarks(raw);
+  const match = normalized.match(/^([^:]{1,45}):\s*(.*)$/);
+  if (!match) return null;
+  return {
+    raw: clean(match[1]),
+    key: normalizeLabel(match[1]),
+    value: clean(match[2]),
+  };
+}
+
+function labelKind(key: string) {
+  if (/^(nome|nome completo)$/.test(key)) return "fullName";
+  if (/^(vulgo|alcunha|apelido)$/.test(key)) return "nickname";
+  if (/^(filiacao|filiacao 1|mae|nome da mae)$/.test(key)) return "motherName";
+  if (key === "cpf") return "cpf";
+  if (/^(data de nascimento|data nascimento|nascimento|dt nascimento)$/.test(key)) return "birthDate";
+  if (/^(endereco|residencia|moradia)$/.test(key)) return "address";
+  if (/^(cidade|municipio|município)$/.test(key)) return "city";
+  if (/^(uf|estado)$/.test(key)) return "state";
+  if (/^(observacao|observacoes|obs|informacao|informacoes)$/.test(key)) return "notes";
+  return "metadata";
+}
+
+function extractCityState(value: string) {
+  const match = stripLeadingMarks(value).match(CITY_STATE_PATTERN);
+  return match ? { city: clean(match[1]), state: match[2].toUpperCase() } : null;
+}
+
+function addNote(notes: string[], value: string) {
+  const note = withoutLabel(value);
+  if (note && !notes.includes(note)) notes.push(note);
 }
 
 export function parseInfosegText(rawText: string): InfosegParseResult {
-  const lines = rawText
+  const sourceLines = rawText
     .split(/\r?\n/)
     .map((line) => clean(line))
     .filter(Boolean);
 
+  const entries: Entry[] = [];
+  let pendingLabel: LabelInfo | null = null;
+
+  sourceLines.forEach((raw, index) => {
+    const directLabel = extractLabel(raw);
+    if (directLabel && !directLabel.value) {
+      pendingLabel = directLabel;
+      return;
+    }
+    if (pendingLabel && !directLabel) {
+      entries.push({ index, raw, value: stripLeadingMarks(raw), label: pendingLabel, used: false });
+      pendingLabel = null;
+      return;
+    }
+    entries.push({
+      index,
+      raw,
+      value: directLabel?.value || stripLeadingMarks(raw),
+      label: directLabel,
+      used: false,
+    });
+  });
+
+  if (pendingLabel) {
+    entries.push({ index: sourceLines.length, raw: pendingLabel.raw, value: "", label: pendingLabel, used: false });
+  }
+
   const recognized = new Set<string>();
-  const used = new Set<number>();
+  const notes: string[] = [];
   const result: InfosegParseResult = {
     fullName: "",
     motherName: "",
+    nickname: "",
     cpf: "",
     birthDate: "",
     city: "",
@@ -59,84 +149,110 @@ export function parseInfosegText(rawText: string): InfosegParseResult {
     recognizedFields: [],
   };
 
-  const cpfIndex = lines.findIndex((line) => CPF_PATTERN.test(line));
-  if (cpfIndex >= 0) {
-    const match = lines[cpfIndex].match(CPF_PATTERN);
-    result.cpf = normalizeCpf(match?.[1] ?? lines[cpfIndex]);
-    used.add(cpfIndex);
-    recognized.add("CPF");
+  for (const entry of entries) {
+    if (!entry.label || !entry.value) continue;
+    const kind = labelKind(entry.label.key);
+    const value = entry.value;
+    if (kind === "fullName") {
+      result.fullName = value;
+      entry.used = true;
+      recognized.add("nome");
+    } else if (kind === "motherName") {
+      result.motherName = value;
+      entry.used = true;
+      recognized.add("nome da mãe");
+    } else if (kind === "nickname") {
+      result.nickname = value;
+      entry.used = true;
+      recognized.add("alcunha");
+    } else if (kind === "cpf") {
+      result.cpf = normalizeCpf(value);
+      entry.used = true;
+      if (result.cpf) recognized.add("CPF");
+    } else if (kind === "birthDate") {
+      result.birthDate = parseDate(value);
+      entry.used = true;
+      if (result.birthDate) recognized.add("data de nascimento");
+    } else if (kind === "address") {
+      result.address = value;
+      entry.used = true;
+      recognized.add("endereço");
+    } else if (kind === "city") {
+      const cityState = extractCityState(value);
+      result.city = cityState?.city || value;
+      if (cityState?.state) result.state = cityState.state;
+      entry.used = true;
+      recognized.add("cidade/UF");
+    } else if (kind === "state") {
+      result.state = value.toUpperCase().slice(0, 2);
+      entry.used = true;
+      recognized.add("cidade/UF");
+    } else if (kind === "notes") {
+      addNote(notes, value);
+      entry.used = true;
+      recognized.add("observações");
+    } else if (kind === "metadata") {
+      addNote(notes, entry.label.raw + ": " + value);
+      entry.used = true;
+      recognized.add("observações");
+    }
   }
 
-  const dateIndex = lines.findIndex((line) => DATE_PATTERN.test(line));
-  if (dateIndex >= 0) {
-    result.birthDate = parseDate(lines[dateIndex]);
-    used.add(dateIndex);
-    recognized.add("data de nascimento");
+  for (const entry of entries) {
+    if (entry.used || entry.label) continue;
+    const value = entry.value;
+    const cpfMatch = value.match(CPF_PATTERN);
+    if (!result.cpf && cpfMatch) {
+      result.cpf = normalizeCpf(cpfMatch[1]);
+      entry.used = true;
+      recognized.add("CPF");
+      continue;
+    }
+    if (!result.birthDate && DATE_PATTERN.test(value)) {
+      result.birthDate = parseDate(value);
+      entry.used = true;
+      recognized.add("data de nascimento");
+      continue;
+    }
+    const cityState = extractCityState(value);
+    if (cityState && !result.city) {
+      result.city = cityState.city;
+      result.state = cityState.state;
+      entry.used = true;
+      recognized.add("cidade/UF");
+      continue;
+    }
   }
 
-  const locationIndex = lines.findIndex((line) => CITY_STATE_PATTERN.test(line));
-  if (locationIndex >= 0) {
-    const location = lines[locationIndex].match(CITY_STATE_PATTERN);
-    result.city = clean(location?.[1] ?? "");
-    result.state = (location?.[2] ?? "PB").toUpperCase();
-    used.add(locationIndex);
-    recognized.add("cidade/UF");
-  }
-
-  const addressIndex = lines.findIndex((line, index) => {
-    if (used.has(index)) return false;
-    return ADDRESS_PREFIX.test(line) || (/\d{1,5}(?:\s|$)/.test(line) && /[A-Za-zÀ-ÿ]/.test(line));
-  });
-  if (addressIndex >= 0) {
-    result.address = lines[addressIndex];
-    used.add(addressIndex);
+  const addressEntry = entries.find((entry) => !entry.used && !entry.label && ADDRESS_PREFIX.test(entry.value));
+  if (addressEntry && !result.address) {
+    result.address = addressEntry.value;
+    addressEntry.used = true;
     recognized.add("endereço");
   }
 
-  if (cpfIndex >= 0) {
-    const nameCandidates = lines.slice(0, cpfIndex).map((line, index) => ({ line, index })).filter(({ index }) => !used.has(index) && isLikelyName(lines[index]));
-    if (nameCandidates.length > 0) {
-      result.fullName = nameCandidates[0].line;
-      used.add(nameCandidates[0].index);
-      recognized.add("nome");
-    }
-    if (nameCandidates.length > 1) {
-      result.motherName = nameCandidates[1].line;
-      used.add(nameCandidates[1].index);
-      recognized.add("nome da mãe");
-    }
+  const nameCandidates = entries.filter((entry) => !entry.used && !entry.label && isLikelyName(entry.value));
+  if (!result.fullName && nameCandidates.length) {
+    result.fullName = nameCandidates[0].value;
+    nameCandidates[0].used = true;
+    recognized.add("nome");
   }
-
-  if (!result.fullName) {
-    const firstNameIndex = lines.findIndex((line, index) => !used.has(index) && isLikelyName(line));
-    if (firstNameIndex >= 0) {
-      result.fullName = lines[firstNameIndex];
-      used.add(firstNameIndex);
-      recognized.add("nome");
-    }
-  }
-
   if (!result.motherName) {
-    const motherIndex = lines.findIndex((line, index) => !used.has(index) && isLikelyName(line) && index < (dateIndex >= 0 ? dateIndex : lines.length));
-    if (motherIndex >= 0 && motherIndex !== lines.indexOf(result.fullName)) {
-      result.motherName = lines[motherIndex];
-      used.add(motherIndex);
+    const motherCandidate = entries.find((entry) => !entry.used && !entry.label && isLikelyName(entry.value));
+    if (motherCandidate) {
+      result.motherName = motherCandidate.value;
+      motherCandidate.used = true;
       recognized.add("nome da mãe");
     }
   }
 
-  const noteLines = lines
-    .map((line, index) => ({ line: withoutLabel(line), index }))
-    .filter(({ line, index }) => Boolean(line) && !used.has(index))
-    .map(({ line }) => line)
-    .filter((line) => !CITY_STATE_PATTERN.test(line) && !DATE_PATTERN.test(line) && !CPF_PATTERN.test(line));
-
-  if (noteLines.length > 0) {
-    result.notes = noteLines.join("\n");
-    recognized.add("observações");
+  for (const entry of entries) {
+    if (!entry.used && entry.value) addNote(notes, entry.value);
   }
 
+  result.notes = notes.join("\n");
+  if (result.notes) recognized.add("observações");
   result.recognizedFields = Array.from(recognized);
-  result.confidence = Math.min(100, Math.round((recognized.size / 7) * 100));
+  result.confidence = Math.min(100, Math.round((recognized.size / 8) * 100));
   return result;
 }
