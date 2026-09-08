@@ -22,10 +22,12 @@ function json(body: unknown, status = 200) {
 
 function fail(message: string, status = 400) { return json({ error: message }, status); }
 
-async function notifyNewQtc(category: string, priority: string) {
+type PushDispatchStatus = "sent" | "not_configured" | "failed";
+
+async function notifyNewQtc(category: string, priority: string): Promise<PushDispatchStatus> {
   // A QTC must still be saved if the optional notification provider is
   // unavailable. The REST key never reaches the browser.
-  if (!oneSignalAppId || !oneSignalRestApiKey) return;
+  if (!oneSignalAppId || !oneSignalRestApiKey) return "not_configured";
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 4_500);
   try {
@@ -46,9 +48,14 @@ async function notifyNewQtc(category: string, priority: string) {
         data: { type: "qtc", category, priority },
       }),
     });
-    if (!response.ok) console.error("OneSignal QTC notification failed", response.status);
+    if (!response.ok) {
+      console.error("OneSignal QTC notification failed", response.status);
+      return "failed";
+    }
+    return "sent";
   } catch (error) {
     console.error("OneSignal QTC notification unavailable", error instanceof Error ? error.message : "unknown");
+    return "failed";
   } finally {
     clearTimeout(timeout);
   }
@@ -655,8 +662,8 @@ async function handleData(path: string, req: Request) {
       const media = await api.from("qtc_alert_media").insert({ alert_id: data.id, object_key: objectKey, original_name: file.name, content_type: file.type, byte_size: file.size, sha256: await sha256Bytes(await file.arrayBuffer()) });
       if (media.error) return fail(media.error.message, 400);
     }
-    await notifyNewQtc(category.label, category.priority);
-    return json({ alert: (await alertRows([data as Record<string, unknown>]))[0] });
+    const pushStatus = await notifyNewQtc(category.label, category.priority);
+    return json({ alert: (await alertRows([data as Record<string, unknown>]))[0], pushStatus });
   }
   const alertMatch = path.match(/^\/alerts\/(\d+)$/);
   if (alertMatch && req.method === "PATCH") {
