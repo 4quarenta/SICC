@@ -1007,7 +1007,7 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
 
         {view === "register" && (
           <form ref={registerFormRef} className="register-form panel" onSubmit={register}>
-            <div className="import-infoseg"><div><b>Preenchimento rápido</b><span>Cole os dados copiados do Infoseg e revise antes de salvar.</span></div><button type="button" className="secondary" onClick={pasteFromInfoseg}>▣ Colar do Infoseg</button></div>
+            <div className="import-infoseg"><div><b>Preenchimento rápido</b><span>A leitura assistida local identifica campos e observações; revise tudo antes de salvar.</span></div><button type="button" className="secondary" onClick={pasteFromInfoseg}>▣ Colar do Infoseg</button></div>
             <FormSection title="Identificação" subtitle="Dados civis e operacionais">
               <div className="form-grid">
                 <label className="wide">Nome completo *<input name="fullName" required minLength={3} value={registerDraft.fullName} onChange={(event) => setRegisterDraft((draft) => ({ ...draft, fullName: event.target.value }))} placeholder="Informe o nome civil" /></label>
