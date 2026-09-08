@@ -13,7 +13,7 @@ type CustodyStatus = "free" | "detained";
 type Address = { id?: number; label: string; address: string; city: string; state: string; notes: string };
 type Faction = { id: number; name: string };
 type SeizedObject = { id?: number; description: string; quantity?: number; seizedAt: string; location?: string; notes?: string };
-type Approach = { id: number; occurredAt: string; latitude: string; longitude: string; accuracyMeters: number | null; locationLabel: string | null; notes: string | null };
+type Approach = { id: number; occurredAt: string | null; latitude: string | null; longitude: string | null; accuracyMeters: number | null; locationLabel: string | null; notes: string | null };
 type Media = { id: number; kind: "face" | "face_front" | "face_profile" | "tattoo"; originalName: string; description: string | null; capturedAt: string | null; url: string };
 type Person = {
   id: number;
@@ -296,6 +296,7 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
   const [location, setLocation] = useState<GeoPoint | null>(null);
   const [addresses, setAddresses] = useState<Address[]>([blankAddress()]);
   const [seizedObjects, setSeizedObjects] = useState<SeizedObject[]>([]);
+  const [importedApproaches, setImportedApproaches] = useState<Array<{ occurredAt: string; locationLabel: string; notes: string }>>([]);
   const [approachPerson, setApproachPerson] = useState<Person | null>(null);
   const [approachLocation, setApproachLocation] = useState<GeoPoint | null>(null);
   const [editPerson, setEditPerson] = useState<Person | null>(null);
@@ -415,6 +416,7 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
   function navigate(next: View) {
     if (next === "register") {
       setRegisterDraft(blankRegisterDraft());
+      setImportedApproaches([]);
       setFactionAffiliated(false);
       setFactionChoice("");
       setNewFactionName("");
@@ -573,12 +575,14 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
       setAddresses(parsed.address
         ? [{ ...blankAddress(), address: parsed.address, city: parsed.city, state: parsed.state }]
         : [blankAddress()]);
+      setImportedApproaches(parsed.approaches);
       const recognized = parsed.recognizedFields.length;
       const confidence = parsed.confidence;
+      const approachSummary = parsed.approaches.length ? ` ${parsed.approaches.length} abordagem(ns) também foram identificada(s).` : "";
       setMessage(
         recognized >= 4
-          ? `Leitura assistida concluída (${confidence}% de confiança): ${parsed.recognizedFields.join(", ")}. Revise os campos antes de salvar.`
-          : "O texto foi lido, mas poucos campos foram reconhecidos. Revise e complete o cadastro manualmente."
+          ? `Leitura assistida concluída (${confidence}% de confiança): ${parsed.recognizedFields.join(", ")}.${approachSummary} Revise os campos antes de salvar.`
+          : `O texto foi lido, mas poucos campos foram reconhecidos.${approachSummary} Revise e complete o cadastro manualmente.`
       );
     } catch {
       setMessage("Não foi possível ler a área de transferência. Autorize o acesso e tente novamente.");
@@ -703,6 +707,7 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
       form.set("source", source);
       form.set("addresses", JSON.stringify(addresses.filter((item) => item.address.trim())));
       form.set("seizedObjects", JSON.stringify(seizedObjects.filter((item) => item.description.trim())));
+      form.set("approaches", JSON.stringify(importedApproaches));
       form.set("factionAffiliated", factionAffiliated ? "yes" : "no");
       if (factionAffiliated) {
         if (factionChoice === "new") form.set("newFactionName", newFactionName);
@@ -739,6 +744,7 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
       setView("search");
       setAddresses([blankAddress()]);
       setSeizedObjects([]);
+      setImportedApproaches([]);
       setRegisterDraft(blankRegisterDraft());
       setFactionAffiliated(false);
       setFactionChoice("");
@@ -1398,7 +1404,7 @@ function PersonModal({ person, onClose, onApproach, onEdit, onDelete }: { person
         </SheetSection>
 
         <SheetSection title="Abordagens" count={person.approachCount || 0}>
-          {person.approaches?.length ? <div className="detail-list">{person.approaches.map((approach) => <article key={approach.id}><b>{formatDate(approach.occurredAt)}</b><span>{approach.locationLabel || "Localização geográfica registrada"}</span><a href={`https://www.google.com/maps?q=${approach.latitude},${approach.longitude}`} target="_blank" rel="noreferrer">Abrir localização no mapa ↗</a>{approach.notes && <small>{approach.notes}</small>}</article>)}</div> : <EmptyDetail text="Nenhuma abordagem registrada." />}
+          {person.approaches?.length ? <div className="detail-list">{person.approaches.map((approach) => <article key={approach.id}><b>{formatDate(approach.occurredAt)}</b><span>{approach.locationLabel || (approach.latitude && approach.longitude ? "Localização geográfica registrada" : "Localização textual importada")}</span>{approach.latitude && approach.longitude && <a href={`https://www.google.com/maps?q=${approach.latitude},${approach.longitude}`} target="_blank" rel="noreferrer">Abrir localização no mapa ↗</a>}{approach.notes && <small>{approach.notes}</small>}</article>)}</div> : <EmptyDetail text="Nenhuma abordagem registrada." />}
         </SheetSection>
 
         <SheetSection title="Objetos apreendidos" count={person.seizedObjects?.length || 0}>
