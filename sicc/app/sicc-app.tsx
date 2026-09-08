@@ -283,7 +283,10 @@ function invitedByLabel(value: string | null | undefined) {
     ["coronel", "CEL"],
   ];
   const normalized = text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-  const prefix = prefixes.find(([label]) => normalized === label || normalized.startsWith(`${label} `));
+  const prefix = prefixes.find(([label]) => {
+    const normalizedLabel = label.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+    return normalized === normalizedLabel || normalized.startsWith(`${normalizedLabel} `);
+  });
   if (!prefix) return text.toUpperCase();
   const name = text.slice(prefix[0].length).trim();
   return prefix[1] + (name ? " " + name.toUpperCase() : "");
