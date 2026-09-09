@@ -2,7 +2,8 @@
 
 import { ChangeEvent, FormEvent, useEffect, useRef, useState } from "react";
 import { ALERT_CATEGORIES, ALERT_PRIORITY_LABEL, ALERT_PRIORITY_ORDER, type AlertPriority } from "./alert-categories";
-import { LOCALITIES, LOCALITY_CITIES, LOCALITY_STATES } from "./localities";
+import { LOCALITIES } from "./localities";
+import { findCity, loadCities, loadNeighborhoods, loadStates, type LocalityCity, type LocalityNeighborhood, type LocalityState } from "./localities-api";
 import { apiFetch } from "./api-client";
 import { parseInfosegText } from "./infoseg-parser";
 import { initOneSignal, logoutOneSignal, readOneSignalPermission, requestOneSignalPermission, type OneSignalSdk } from "./onesignal";
@@ -315,6 +316,62 @@ function formatDate(value: string | null | undefined) {
 
 function normalizeSearch(value: string) {
   return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+}
+
+type LocalityValue = { state: string; city: string; neighborhood?: string };
+
+function LocalityFields({ value, onChange, includeNeighborhood = false, required = false }: { value: LocalityValue; onChange: (next: LocalityValue) => void; includeNeighborhood?: boolean; required?: boolean }) {
+  const [states, setStates] = useState<LocalityState[]>([]);
+  const [cities, setCities] = useState<LocalityCity[]>([]);
+  const [neighborhoods, setNeighborhoods] = useState<LocalityNeighborhood[]>([]);
+  const [cityQuery, setCityQuery] = useState(value.city);
+  const [neighborhoodQuery, setNeighborhoodQuery] = useState(value.neighborhood ?? "");
+  const [openPicker, setOpenPicker] = useState<"city" | "neighborhood" | null>(null);
+  const [loadingCities, setLoadingCities] = useState(false);
+  const [loadingNeighborhoods, setLoadingNeighborhoods] = useState(false);
+
+  useEffect(() => { let active = true; void loadStates().then((items) => { if (active) setStates(items); }); return () => { active = false; }; }, []);
+  useEffect(() => {
+    let active = true;
+    setCities([]); setNeighborhoods([]);
+    if (!value.state) return () => { active = false; };
+    setLoadingCities(true);
+    void loadCities(value.state).then((items) => { if (active) setCities(items); }).finally(() => { if (active) setLoadingCities(false); });
+    return () => { active = false; };
+  }, [value.state]);
+  useEffect(() => {
+    setCityQuery(value.city);
+    setNeighborhoodQuery(value.neighborhood ?? "");
+  }, [value.city, value.neighborhood]);
+  useEffect(() => {
+    if (!includeNeighborhood || !value.city) return;
+    const city = findCity(cities, value.city);
+    if (!city) { setNeighborhoods((LOCALITIES[value.city] ?? []).map((name, index) => ({ id: -(index + 1), name }))); return; }
+    let active = true;
+    setLoadingNeighborhoods(true);
+    void loadNeighborhoods(city).then((items) => { if (active) setNeighborhoods(items); }).finally(() => { if (active) setLoadingNeighborhoods(false); });
+    return () => { active = false; };
+  }, [cities, includeNeighborhood, value.city]);
+
+  const selectedCity = findCity(cities, value.city);
+  const citySuggestions = cities.filter((city) => !cityQuery.trim() || normalizeSearch(city.name).includes(normalizeSearch(cityQuery))).slice(0, 12);
+  const neighborhoodSuggestions = neighborhoods.filter((item) => !neighborhoodQuery.trim() || normalizeSearch(item.name).includes(normalizeSearch(neighborhoodQuery))).slice(0, 16);
+  const stateName = states.find((state) => state.uf === value.state)?.name;
+
+  return <>
+    <label>Estado (UF) {required && "*"}<select value={value.state} onChange={(event) => onChange({ state: event.target.value, city: "", neighborhood: "" })} required={required}>
+      <option value="">Selecione o estado</option>
+      {states.map((state) => <option key={state.uf} value={state.uf}>{state.name} ({state.uf})</option>)}
+    </select></label>
+    <label className="locality-field">Cidade {required && "*"}<div className="locality-autocomplete">
+      <input value={cityQuery} onFocus={() => value.state && setOpenPicker("city")} onBlur={() => window.setTimeout(() => setOpenPicker((current) => current === "city" ? null : current), 140)} onChange={(event) => { const next = event.target.value; setCityQuery(next); onChange({ ...value, city: next, neighborhood: "" }); }} disabled={!value.state} required={required} placeholder={value.state ? (loadingCities ? "Carregando municípios…" : `Pesquisar em ${stateName ?? value.state}`) : "Selecione o estado primeiro"} autoComplete="off" />
+      {openPicker === "city" && citySuggestions.length > 0 && <div className="locality-suggestions">{citySuggestions.map((city) => <button type="button" key={`${city.uf}-${city.id}`} onMouseDown={(event) => event.preventDefault()} onClick={() => { setCityQuery(city.name); onChange({ ...value, city: city.name, neighborhood: "" }); setOpenPicker(null); }}>{city.name}</button>)}</div>}
+    </div></label>
+    {includeNeighborhood && <label className="locality-field">Bairro {required && "*"}<div className="locality-autocomplete">
+      <input value={neighborhoodQuery} onFocus={() => selectedCity && setOpenPicker("neighborhood")} onBlur={() => window.setTimeout(() => setOpenPicker((current) => current === "neighborhood" ? null : current), 140)} onChange={(event) => { const next = event.target.value; setNeighborhoodQuery(next); onChange({ ...value, neighborhood: next }); }} disabled={!selectedCity && !value.city} required={required} placeholder={value.city ? (loadingNeighborhoods ? "Carregando bairros…" : "Pesquisar o bairro") : "Selecione a cidade primeiro"} autoComplete="off" />
+      {openPicker === "neighborhood" && neighborhoodSuggestions.length > 0 && <div className="locality-suggestions">{neighborhoodSuggestions.map((item) => <button type="button" key={`${item.id ?? "n"}-${item.name}`} onMouseDown={(event) => event.preventDefault()} onClick={() => { setNeighborhoodQuery(item.name); onChange({ ...value, neighborhood: item.name }); setOpenPicker(null); }}>{item.name}</button>)}</div>}
+    </div></label>}
+  </>;
 }
 
 export default function SICCApp({ operator, onLogout }: { operator: Operator; onLogout: () => Promise<void> }) {
@@ -824,6 +881,8 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
         return;
       }
       form.set("source", source);
+      form.set("city", registerDraft.city);
+      form.set("state", registerDraft.state);
       form.set("addresses", JSON.stringify(addresses.filter((item) => item.address.trim())));
       form.set("seizedObjects", JSON.stringify(seizedObjects.filter((item) => item.description.trim())));
       form.set("approaches", JSON.stringify(importedApproaches));
@@ -1069,8 +1128,7 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
                 <label>Alcunha<input name="nickname" value={registerDraft.nickname} onChange={(event) => setRegisterDraft((draft) => ({ ...draft, nickname: event.target.value }))} placeholder="Nome pelo qual é conhecido" /></label>
                 <label>Data de nascimento<input name="birthDate" type="date" value={registerDraft.birthDate} onChange={(event) => setRegisterDraft((draft) => ({ ...draft, birthDate: event.target.value }))} /></label>
                 <label>Nome da mãe<input name="motherName" value={registerDraft.motherName} onChange={(event) => setRegisterDraft((draft) => ({ ...draft, motherName: event.target.value }))} placeholder="Auxilia a confirmação de identidade" /></label>
-                <label>Cidade de referência<input name="city" value={registerDraft.city} onChange={(event) => setRegisterDraft((draft) => ({ ...draft, city: event.target.value }))} placeholder="Município" /></label>
-                <label>UF<select name="state" value={registerDraft.state} onChange={(event) => setRegisterDraft((draft) => ({ ...draft, state: event.target.value }))}><option>PB</option><option>RN</option><option>PE</option><option>CE</option></select></label>
+                <div className="locality-fields"><LocalityFields value={{ state: registerDraft.state, city: registerDraft.city }} onChange={(next) => setRegisterDraft((draft) => ({ ...draft, state: next.state, city: next.city }))} /></div>
                 <label>Situação<select name="status" defaultValue="alive"><option value="alive">Vivo</option><option value="dead">Morto</option></select></label><label>Custódia<select name="custodyStatus" defaultValue="free"><option value="free">Em liberdade</option><option value="detained">Preso</option></select></label>
               </div>
               <div className="faction-fields">
@@ -1095,8 +1153,7 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
                     <div className="form-grid">
                       <label>Tipo<input value={address.label} onChange={(event) => setAddresses((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, label: event.target.value } : item))} placeholder="Residencial, trabalho..." /></label>
                       <label className="wide">Logradouro e número<input value={address.address} onChange={(event) => setAddresses((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, address: event.target.value } : item))} placeholder="Rua, número, bairro e complemento" /></label>
-                      <label>Cidade<input value={address.city} onChange={(event) => setAddresses((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, city: event.target.value } : item))} /></label>
-                      <label>UF<input value={address.state} maxLength={2} onChange={(event) => setAddresses((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, state: event.target.value.toUpperCase() } : item))} /></label>
+                      <div className="locality-fields"><LocalityFields value={{ state: address.state, city: address.city }} onChange={(next) => setAddresses((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, city: next.city, state: next.state } : item))} /></div>
                       <label className="wide">Observação do endereço<input value={address.notes} onChange={(event) => setAddresses((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, notes: event.target.value } : item))} placeholder="Ex.: endereço da mãe" /></label>
                     </div>
                   </div>
@@ -1237,12 +1294,9 @@ function AlertsView({ operator }: { operator: Operator }) {
   const [showCreate, setShowCreate] = useState(false);
   const [selectedAlert, setSelectedAlert] = useState<AlertRecord | null>(null);
   const [categoryKey, setCategoryKey] = useState(ALERT_CATEGORIES[0].key);
-  const [municipalityState, setMunicipalityState] = useState<"" | "PB" | "RN">("");
+  const [municipalityState, setMunicipalityState] = useState("");
   const [municipality, setMunicipality] = useState("");
-  const [municipalityQuery, setMunicipalityQuery] = useState("");
   const [neighborhood, setNeighborhood] = useState("");
-  const [neighborhoodQuery, setNeighborhoodQuery] = useState("");
-  const [localityPicker, setLocalityPicker] = useState<"city" | "neighborhood" | null>(null);
   const [peopleInfo, setPeopleInfo] = useState("");
   const [vehicleInfo, setVehicleInfo] = useState("");
   const [description, setDescription] = useState("");
@@ -1254,9 +1308,6 @@ function AlertsView({ operator }: { operator: Operator }) {
   const [confirmation, setConfirmation] = useState<{ title: string; message: string; action: () => Promise<void> } | null>(null);
 
   const selectedCategory = ALERT_CATEGORIES.find((item) => item.key === categoryKey) ?? ALERT_CATEGORIES[0];
-  const citySuggestions = LOCALITY_CITIES.filter((city) => (!municipalityState || LOCALITY_STATES[city] === municipalityState) && (!municipalityQuery.trim() || normalizeSearch(city).includes(normalizeSearch(municipalityQuery)))).slice(0, 8);
-  const neighborhoodSuggestions = (LOCALITIES[municipality] ?? []).filter((item) => !neighborhoodQuery.trim() || normalizeSearch(item).includes(normalizeSearch(neighborhoodQuery))).slice(0, 10);
-
   async function loadAlerts() {
     setLoading(true);
     try {
@@ -1290,31 +1341,7 @@ function AlertsView({ operator }: { operator: Operator }) {
 
   function clearForm() {
     previews.forEach((url) => URL.revokeObjectURL(url));
-    setImages([]); setPreviews([]); setCategoryKey(ALERT_CATEGORIES[0].key); setMunicipalityState(""); setMunicipality(""); setMunicipalityQuery(""); setNeighborhood(""); setNeighborhoodQuery(""); setLocalityPicker(null); setPeopleInfo(""); setVehicleInfo(""); setDescription(""); setOccurredAt(currentBrasiliaDateTime()); setLocationLink(""); setOpenSections({});
-  }
-
-  function selectMunicipality(value: string) {
-    setMunicipality(value);
-    setMunicipalityState(LOCALITY_STATES[value] ?? "");
-    setMunicipalityQuery(value);
-    setNeighborhood("");
-    setNeighborhoodQuery("");
-    setLocalityPicker(null);
-  }
-
-  function selectMunicipalityState(value: "PB" | "RN") {
-    setMunicipalityState(value);
-    setMunicipality("");
-    setMunicipalityQuery("");
-    setNeighborhood("");
-    setNeighborhoodQuery("");
-    setLocalityPicker("city");
-  }
-
-  function selectNeighborhood(value: string) {
-    setNeighborhood(value);
-    setNeighborhoodQuery(value);
-    setLocalityPicker(null);
+    setImages([]); setPreviews([]); setCategoryKey(ALERT_CATEGORIES[0].key); setMunicipalityState(""); setMunicipality(""); setNeighborhood(""); setPeopleInfo(""); setVehicleInfo(""); setDescription(""); setOccurredAt(currentBrasiliaDateTime()); setLocationLink(""); setOpenSections({});
   }
 
   function toggleSection(section: string) {
@@ -1323,7 +1350,7 @@ function AlertsView({ operator }: { operator: Operator }) {
 
   async function createAlert(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!municipalityState || !municipality || LOCALITY_STATES[municipality] !== municipalityState || !neighborhood || !LOCALITIES[municipality]?.includes(neighborhood) || !description.trim()) { setNotice("Selecione o estado, a cidade e o bairro nas listas predefinidas e informe a descrição da ocorrência."); return; }
+    if (!municipalityState || !municipality || !neighborhood || !description.trim()) { setNotice("Informe o estado, a cidade, o bairro e a descrição da ocorrência."); return; }
     setSaving(true); setNotice("");
     try {
       const targetBytes = Math.max(70_000, Math.floor(900_000 / Math.max(1, images.length)));
@@ -1401,7 +1428,7 @@ function AlertsView({ operator }: { operator: Operator }) {
       <div className="panel-title"><div><h2>Novo QTC</h2><span>Descreva somente fatos objetivos e relevantes.</span></div></div>
       <div className="alert-form-sections">
         <AlertFormSection title="Classificação e identificação" subtitle="Categoria, município e momento da ocorrência" open={Boolean(openSections.classification)} onToggle={() => toggleSection("classification")}>
-          <div className="alert-form-grid"><label className="wide">Categoria *<select value={categoryKey} onChange={(event) => setCategoryKey(event.target.value)} required>{ALERT_CATEGORIES.map((item) => <option key={item.key} value={item.key}>{item.label} · prioridade {ALERT_PRIORITY_LABEL[item.priority]}</option>)}</select><small className={`priority-chip ${selectedCategory.priority}`}>{ALERT_PRIORITY_LABEL[selectedCategory.priority]} · {selectedCategory.description}</small></label><label>Estado (UF) *<select value={municipalityState} onChange={(event) => { const value = event.target.value as "" | "PB" | "RN"; if (value) selectMunicipalityState(value); else { setMunicipalityState(""); setMunicipality(""); setMunicipalityQuery(""); setNeighborhood(""); setNeighborhoodQuery(""); setLocalityPicker(null); } }} required><option value="">Selecione o estado</option><option value="PB">Paraíba (PB)</option><option value="RN">Rio Grande do Norte (RN)</option></select></label><label className="locality-field">Cidade *<div className="locality-autocomplete"><input value={municipalityQuery} onFocus={() => municipalityState && setLocalityPicker("city")} onBlur={() => window.setTimeout(() => setLocalityPicker((current) => current === "city" ? null : current), 120)} onChange={(event) => { const value = event.target.value; setMunicipalityQuery(value); const match = LOCALITY_CITIES.find((city) => LOCALITY_STATES[city] === municipalityState && normalizeSearch(city) === normalizeSearch(value)); setMunicipality(match ?? ""); setNeighborhood(""); setNeighborhoodQuery(""); }} disabled={!municipalityState} required placeholder={municipalityState ? "Digite para pesquisar a cidade" : "Selecione o estado primeiro"} autoComplete="off" />{localityPicker === "city" && citySuggestions.length > 0 && <div className="locality-suggestions">{citySuggestions.map((city) => <button type="button" key={city} onMouseDown={(event) => event.preventDefault()} onClick={() => selectMunicipality(city)}>{city}</button>)}</div>}</div></label><label className="locality-field">Bairro *<div className="locality-autocomplete"><input value={neighborhoodQuery} onFocus={() => municipality && setLocalityPicker("neighborhood")} onBlur={() => window.setTimeout(() => setLocalityPicker((current) => current === "neighborhood" ? null : current), 120)} onChange={(event) => { const value = event.target.value; setNeighborhoodQuery(value); const match = (LOCALITIES[municipality] ?? []).find((item) => normalizeSearch(item) === normalizeSearch(value)); setNeighborhood(match ?? ""); }} disabled={!municipality} required placeholder={municipality ? "Digite para pesquisar o bairro" : "Selecione a cidade primeiro"} autoComplete="off" />{localityPicker === "neighborhood" && neighborhoodSuggestions.length > 0 && <div className="locality-suggestions">{neighborhoodSuggestions.map((item) => <button type="button" key={item} onMouseDown={(event) => event.preventDefault()} onClick={() => selectNeighborhood(item)}>{item}</button>)}</div>}</div></label><label className="wide">Data e hora da ocorrência *<input type="datetime-local" value={occurredAt} onChange={(event) => setOccurredAt(event.target.value)} required /></label></div>
+          <div className="alert-form-grid"><label className="wide">Categoria *<select value={categoryKey} onChange={(event) => setCategoryKey(event.target.value)} required>{ALERT_CATEGORIES.map((item) => <option key={item.key} value={item.key}>{item.label} · prioridade {ALERT_PRIORITY_LABEL[item.priority]}</option>)}</select><small className={`priority-chip ${selectedCategory.priority}`}>{ALERT_PRIORITY_LABEL[selectedCategory.priority]} · {selectedCategory.description}</small></label><div className="locality-fields qtc-locality-fields"><LocalityFields value={{ state: municipalityState, city: municipality, neighborhood }} onChange={(next) => { setMunicipalityState(next.state); setMunicipality(next.city); setNeighborhood(next.neighborhood ?? ""); }} includeNeighborhood required /></div><label className="wide">Data e hora da ocorrência *<input type="datetime-local" value={occurredAt} onChange={(event) => setOccurredAt(event.target.value)} required /></label></div>
         </AlertFormSection>
         <AlertFormSection title="Pessoas e veículo" subtitle="Informações vinculadas, quando houver" open={Boolean(openSections.involved)} onToggle={() => toggleSection("involved")}>
           <div className="alert-form-grid"><label>Pessoas envolvidas<textarea rows={3} value={peopleInfo} onChange={(event) => setPeopleInfo(event.target.value)} placeholder="Nome, alcunha ou descrição, se houver" /></label><label>Veículo<textarea rows={3} value={vehicleInfo} onChange={(event) => setVehicleInfo(event.target.value)} placeholder="Placa, modelo, cor e características" /></label></div>
@@ -1600,6 +1627,8 @@ function EditPersonModal({
   const [editFactionAffiliated, setEditFactionAffiliated] = useState(Boolean(person.factionId));
   const [editFactionChoice, setEditFactionChoice] = useState(person.factionId ? String(person.factionId) : "");
   const [editNewFactionName, setEditNewFactionName] = useState("");
+  const [editFormCity, setEditFormCity] = useState(person.city ?? "");
+  const [editFormState, setEditFormState] = useState(person.state ?? "");
   const [mediaItems, setMediaItems] = useState<Media[]>(person.media ?? []);
   const [removedMediaIds, setRemovedMediaIds] = useState<number[]>([]);
   const [mediaToRemove, setMediaToRemove] = useState<Media | null>(null);
@@ -1615,6 +1644,8 @@ function EditPersonModal({
     setEditNotice("");
     try {
       const form = new FormData(event.currentTarget);
+      form.set("city", editFormCity);
+      form.set("state", editFormState);
       const fullName = String(form.get("fullName") ?? "").trim();
       const cpfDigits = String(form.get("cpf") ?? "").replace(/\D/g, "");
       if (fullName.length < 3) throw new Error("Informe o nome completo.");
@@ -1676,8 +1707,7 @@ function EditPersonModal({
             <label>Alcunha<input name="nickname" defaultValue={person.nickname ?? ""} /></label>
             <label>Data de nascimento<input name="birthDate" type="date" defaultValue={person.birthDate ?? ""} /></label>
             <label>Nome da mãe<input name="motherName" defaultValue={person.motherName ?? ""} /></label>
-            <label>Cidade de referência<input name="city" defaultValue={person.city ?? ""} /></label>
-            <label>UF<select name="state" defaultValue={person.state ?? "PB"}><option>PB</option><option>RN</option><option>PE</option><option>CE</option></select></label>
+            <div className="locality-fields"><LocalityFields value={{ state: editFormState, city: editFormCity }} onChange={(next) => { setEditFormState(next.state); setEditFormCity(next.city); }} /></div>
             <label>Situação<select name="status" defaultValue={person.status}><option value="alive">Vivo</option><option value="dead">Morto</option></select></label><label>Custódia<select name="custodyStatus" defaultValue={person.custodyStatus ?? "free"}><option value="free">Em liberdade</option><option value="detained">Preso</option></select></label>
           </div>
           <div className="faction-fields">
@@ -1715,8 +1745,7 @@ function EditPersonModal({
                 <div className="form-grid">
                   <label>Tipo<input value={address.label} onChange={(event) => setEditAddresses((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, label: event.target.value } : item))} /></label>
                   <label className="wide">Logradouro e número<input value={address.address} onChange={(event) => setEditAddresses((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, address: event.target.value } : item))} /></label>
-                  <label>Cidade<input value={address.city} onChange={(event) => setEditAddresses((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, city: event.target.value } : item))} /></label>
-                  <label>UF<input value={address.state} maxLength={2} onChange={(event) => setEditAddresses((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, state: event.target.value.toUpperCase() } : item))} /></label>
+                  <div className="locality-fields"><LocalityFields value={{ state: address.state, city: address.city }} onChange={(next) => setEditAddresses((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, city: next.city, state: next.state } : item))} /></div>
                   <label className="wide">Observação do endereço<input value={address.notes ?? ""} onChange={(event) => setEditAddresses((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, notes: event.target.value } : item))} placeholder="Ex.: endereço da mãe" /></label>
                 </div>
               </div>
