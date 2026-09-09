@@ -1177,7 +1177,7 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
               </div>
             </FormSection>
 
-            <FormSection title="Origem do registro" subtitle="A localização só é capturada quando o cadastro decorre de abordagem">
+            <FormSection title="Local de abordagem" subtitle="A localização só é capturada quando o cadastro decorre de abordagem">
               <div className="source-options">
                 <label><input type="radio" checked={source === "administrative"} onChange={() => { setSource("administrative"); setLocation(null); }} /> Cadastro administrativo</label>
                 <label><input type="radio" checked={source === "approach"} onChange={() => setSource("approach")} /> Abordagem em andamento</label>
@@ -1546,7 +1546,7 @@ function PersonList({ people, onSelect }: { people: Person[]; onSelect: (person:
     const face = person.media?.find((item) => item.kind === "face" || item.kind === "face_front" || item.kind === "face_profile");
     return <button key={person.id} onClick={() => onSelect(person)}>
       {face ? <img className="list-photo" src={face.url} alt="" /> : <span className="list-avatar">{initials(person.fullName)}</span>}
-      <span className="person-name"><b>{person.fullName}</b><small>{person.nickname ? `“${person.nickname}” · ` : ""}{maskCpf(person.cpf)}</small><em>Nascimento: {formatDate(person.birthDate)} · {custodyStatusLabel[person.custodyStatus ?? "free"]} · {person.approachCount || 0} abordagem(ns)</em><span className="person-alerts">{person.factionName && <strong className="person-alert faction-alert">⚠ Faccionado: {person.factionName}</strong>}{person.seizedObjects?.length > 0 && <strong className="person-alert object-alert">⚠ Possui objeto apreendido</strong>}{person.notes?.trim() && <strong className="person-alert observation-alert">⚠ Possui observação</strong>}</span></span>
+      <span className="person-name"><b>{person.fullName}</b><small>{person.nickname ? `“${person.nickname}” · ` : ""}{maskCpf(person.cpf)}</small><em>{formatDate(person.birthDate)}</em><em>{person.motherName || "Mãe não informada"}</em><span className="person-alerts">{person.factionName && <strong className="person-alert faction-alert">⚠ Faccionado: {person.factionName}</strong>}{person.seizedObjects?.length > 0 && <strong className="person-alert object-alert">⚠ Possui objeto apreendido</strong>}{person.notes?.trim() && <strong className="person-alert observation-alert">⚠ Possui observação</strong>}</span></span>
       <span className={`badge ${person.status}`}>{statusLabel[person.status]}</span><span className="arrow">›</span>
     </button>;
   })}</div>;
