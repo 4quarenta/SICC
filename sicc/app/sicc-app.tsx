@@ -79,7 +79,7 @@ type AlertRecord = {
   categoryLabel: string;
   priority: AlertPriority;
   municipality: string;
-  municipalityState: "PB" | "RN" | null;
+  municipalityState: string | null;
   neighborhood: string | null;
   peopleInfo: string | null;
   vehicleInfo: string | null;
