@@ -89,6 +89,7 @@ secrets da função:
       SICC_BOOTSTRAP_KEY=... \
       ONESIGNAL_APP_ID=6934d3ea-0e2f-4273-8196-6415d4933815 \
       ONESIGNAL_REST_API_KEY=... \
+      BRASIL_ABERTO_API_TOKEN=... \
       SICC_WEB_APP_URL=https://4quarenta.github.io/SICC/
 
 `ONESIGNAL_REST_API_KEY` deve ser criada no painel do OneSignal e configurada
@@ -96,6 +97,13 @@ somente como secret da Edge Function. Ela nunca deve entrar no GitHub nem no
 bundle do Pages. O worker do OneSignal fica em
 `/SICC/push/onesignal/OneSignalSDKWorker.js`, em escopo separado do worker PWA
 principal para não substituir o cache/offline da aplicação.
+
+Estados e municípios são carregados diretamente da API oficial do IBGE. A lista
+de bairros é obtida pelo endpoint protegido do Brasil Aberto quando
+`BRASIL_ABERTO_API_TOKEN` estiver configurado como secret da Edge Function. Sem
+esse token, o formulário continua aceitando o bairro digitado e usa apenas o
+catálogo local de fallback para sugestões; não há uma lista nacional oficial,
+completa e gratuita de bairros disponível sem essa dependência.
 
 O bucket deve permanecer privado. Uploads são comprimidos no navegador antes
 do envio; a remoção de cadastro/foto remove também o objeto autorizado no
