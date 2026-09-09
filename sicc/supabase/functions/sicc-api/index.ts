@@ -11,6 +11,9 @@ const bucket = Deno.env.get("SICC_STORAGE_BUCKET") ?? "sicc-media";
 // configured in Supabase.
 const oneSignalAppId = (Deno.env.get("ONESIGNAL_APP_ID") ?? "6934d3ea-0e2f-4273-8196-6415d4933815").trim();
 const oneSignalRestApiKey = (Deno.env.get("ONESIGNAL_REST_API_KEY") ?? "").trim();
+// Optional provider for a complete neighborhood catalogue. The token stays
+// in Supabase secrets; it is never sent to the browser or committed to Git.
+const brasilAbertoToken = (Deno.env.get("BRASIL_ABERTO_API_TOKEN") ?? "").trim();
 const webAppUrl = Deno.env.get("SICC_WEB_APP_URL") ?? "https://4quarenta.github.io/SICC/";
 const api = createClient(supabaseUrl, serviceRoleKey);
 
@@ -239,6 +242,43 @@ async function findBootstrapInvite(token: string) {
     .maybeSingle();
   if (error) throw error;
   return data as { id: number; expires_at: string } | null;
+}
+
+async function handleLocalities(path: string, req: Request) {
+  const context = await operatorContext(req);
+  if ("response" in context) return context.response;
+  if (path !== "/localities/neighborhoods" || req.method !== "GET") return fail("Endpoint de localidades não encontrado.", 404);
+
+  const params = new URL(req.url).searchParams;
+  const ibgeCode = clean(params.get("ibgeCode"));
+  if (!/^\d{7}$/.test(ibgeCode)) return fail("Código IBGE do município inválido.", 400);
+
+  // States and municipalities come directly from IBGE in the browser. This
+  // optional server-side call only fills the neighborhood suggestions.
+  if (!brasilAbertoToken) return json({ neighborhoods: [], source: "unconfigured" });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8_000);
+  try {
+    const response = await fetch(`https://api.brasilaberto.com/v1/districts-by-ibge-code/${ibgeCode}`, {
+      headers: { Accept: "application/json", Authorization: `Bearer ${brasilAbertoToken}` },
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      console.error("Brasil Aberto neighborhoods failed", response.status);
+      return json({ neighborhoods: [], source: "unavailable" });
+    }
+    const data = await response.json() as { result?: Array<{ id?: number | string; name?: string; nome?: string }> };
+    const neighborhoods = (data.result ?? [])
+      .map((item) => ({ id: Number(item.id ?? 0) || null, name: String(item.name ?? item.nome ?? "").trim() }))
+      .filter((item) => item.name)
+      .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
+    return json({ neighborhoods, source: "brasil-aberto" });
+  } catch (error) {
+    console.error("Brasil Aberto neighborhoods unavailable", error instanceof Error ? error.message : "unknown");
+    return json({ neighborhoods: [], source: "unavailable" });
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 async function signedUrl(objectKey: string | null) {
@@ -788,6 +828,7 @@ Deno.serve(async (req) => {
     const url = new URL(req.url);
     const marker = "/sicc-api";
     const path = (url.pathname.includes(marker) ? url.pathname.slice(url.pathname.indexOf(marker) + marker.length) || "/" : url.pathname).replace(/\/+$/, "") || "/";
+    if (path.startsWith("/localities/")) return await handleLocalities(path, req);
     const auth = await handleAuth(path, req);
     if (!auth && path === "/") return json({ ok: true, service: "sicc-api" });
     return auth ?? await handleData(path, req);
