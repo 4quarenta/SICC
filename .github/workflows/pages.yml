@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
 
@@ -23,6 +23,38 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Apply requested UI copy changes
+        shell: python
+        run: |
+          from pathlib import Path
+          p = Path("app/sicc-app.tsx")
+          s = p.read_text()
+          old_preview = '<em>Nascimento: {formatDate(person.birthDate)} · {custodyStatusLabel[person.custodyStatus ?? "free"]} · {person.approachCount || 0} abordagem(ns)</em>'
+          new_preview = '<em>{formatDate(person.birthDate)}</em><em>{person.motherName || "Mãe não informada"}</em>'
+          old_section = '<FormSection title="Origem do registro" subtitle="A localização só é capturada quando o cadastro decorre de abordagem">'
+          new_section = '<FormSection title="Local de abordagem" subtitle="A localização só é capturada quando o cadastro decorre de abordagem">'
+          changed = False
+          if old_preview in s:
+              s = s.replace(old_preview, new_preview, 1)
+              changed = True
+          if old_section in s:
+              s = s.replace(old_section, new_section, 1)
+              changed = True
+          if changed:
+              p.write_text(s)
+      - name: Commit requested UI changes
+        run: |
+          if git diff --quiet -- app/sicc-app.tsx; then
+            echo "No source changes needed"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add app/sicc-app.tsx
+            git commit -m "fix(ui): simplify consultation preview and rename approach section"
+            git push
+          fi
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
