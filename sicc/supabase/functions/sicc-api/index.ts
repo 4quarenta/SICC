@@ -319,6 +319,7 @@ async function peopleRows(ids?: number[]) {
     cpf: row.cpf,
     birthDate: row.birth_date,
     motherName: row.mother_name,
+    tattooDescription: row.tattoo_description,
     city: row.city,
     state: row.state,
     status: row.status,
@@ -554,7 +555,7 @@ async function handleData(path: string, req: Request) {
     const faction = await resolveFactionId(form);
     if (faction.error) return fail(faction.error, 400);
     const now = new Date().toISOString();
-    const { data: person, error } = await api.from("people").insert({ full_name: clean(form.get("fullName")), nickname: clean(form.get("nickname")) || null, cpf, birth_date: clean(form.get("birthDate")) || null, mother_name: clean(form.get("motherName")) || null, city: clean(form.get("city")) || null, state: clean(form.get("state")) || null, status: clean(form.get("status")) === "dead" ? "dead" : "alive", custody_status: clean(form.get("custodyStatus")) === "detained" ? "detained" : "free", notes: clean(form.get("notes")) || null, faction_id: faction.id, created_by: user.id, created_at: now, updated_at: now }).select("id").single();
+    const { data: person, error } = await api.from("people").insert({ full_name: clean(form.get("fullName")), nickname: clean(form.get("nickname")) || null, cpf, birth_date: clean(form.get("birthDate")) || null, mother_name: clean(form.get("motherName")) || null, tattoo_description: clean(form.get("tattooDescription")) || null, city: clean(form.get("city")) || null, state: clean(form.get("state")) || null, status: clean(form.get("status")) === "dead" ? "dead" : "alive", custody_status: clean(form.get("custodyStatus")) === "detained" ? "detained" : "free", notes: clean(form.get("notes")) || null, faction_id: faction.id, created_by: user.id, created_at: now, updated_at: now }).select("id").single();
     if (error || !person) return fail(error?.message ?? "Não foi possível salvar o cadastro.", 400);
     try {
       const addresses = JSON.parse(String(form.get("addresses") ?? "[]")) as Array<Record<string, string>>;
@@ -620,6 +621,7 @@ async function handleData(path: string, req: Request) {
       cpf,
       birth_date: clean(form.get("birthDate")) || null,
       mother_name: clean(form.get("motherName")) || null,
+      tattoo_description: clean(form.get("tattooDescription")) || null,
       city: clean(form.get("city")) || null,
       state: clean(form.get("state")) || null,
       status: clean(form.get("status")) === "dead" ? "dead" : "alive",

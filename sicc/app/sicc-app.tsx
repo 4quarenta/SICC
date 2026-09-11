@@ -24,6 +24,7 @@ type Person = {
   cpf: string;
   birthDate: string | null;
   motherName: string | null;
+  tattooDescription: string | null;
   city: string | null;
   state: string | null;
   status: Status;
@@ -254,7 +255,7 @@ async function safeVisualSignature(file: File) {
 }
 
 const blankObject = (): SeizedObject => ({ description: "", seizedAt: currentBrasiliaDate() });
-const blankRegisterDraft = () => ({ fullName: "", nickname: "", cpf: "", birthDate: "", motherName: "", city: "", state: "PB", notes: "" });
+const blankRegisterDraft = () => ({ fullName: "", nickname: "", cpf: "", birthDate: "", motherName: "", tattooDescription: "", city: "", state: "PB", notes: "" });
 
 function initials(name: string) {
   return name.split(" ").filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toUpperCase();
@@ -1128,6 +1129,7 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
                 <label>Alcunha<input name="nickname" value={registerDraft.nickname} onChange={(event) => setRegisterDraft((draft) => ({ ...draft, nickname: event.target.value }))} placeholder="Nome pelo qual é conhecido" /></label>
                 <label>Data de nascimento<input name="birthDate" type="date" value={registerDraft.birthDate} onChange={(event) => setRegisterDraft((draft) => ({ ...draft, birthDate: event.target.value }))} /></label>
                 <label>Nome da mãe<input name="motherName" value={registerDraft.motherName} onChange={(event) => setRegisterDraft((draft) => ({ ...draft, motherName: event.target.value }))} placeholder="Auxilia a confirmação de identidade" /></label>
+                <label className="wide">Descrição de tatuagens<textarea name="tattooDescription" rows={3} value={registerDraft.tattooDescription} onChange={(event) => setRegisterDraft((draft) => ({ ...draft, tattooDescription: event.target.value }))} placeholder="Ex.: coroa com nome Miguel no pescoço" /></label>
                 <div className="locality-fields"><LocalityFields value={{ state: registerDraft.state, city: registerDraft.city }} onChange={(next) => setRegisterDraft((draft) => ({ ...draft, state: next.state, city: next.city }))} /></div>
                 <label>Situação<select name="status" defaultValue="alive"><option value="alive">Vivo</option><option value="dead">Morto</option></select></label><label>Custódia<select name="custodyStatus" defaultValue="free"><option value="free">Em liberdade</option><option value="detained">Preso</option></select></label>
               </div>
@@ -1707,6 +1709,7 @@ function EditPersonModal({
             <label>Alcunha<input name="nickname" defaultValue={person.nickname ?? ""} /></label>
             <label>Data de nascimento<input name="birthDate" type="date" defaultValue={person.birthDate ?? ""} /></label>
             <label>Nome da mãe<input name="motherName" defaultValue={person.motherName ?? ""} /></label>
+            <label className="wide">Descrição de tatuagens<textarea name="tattooDescription" rows={3} defaultValue={person.tattooDescription ?? ""} placeholder="Descreva tatuagens conhecidas" /></label>
             <div className="locality-fields"><LocalityFields value={{ state: editFormState, city: editFormCity }} onChange={(next) => { setEditFormState(next.state); setEditFormCity(next.city); }} /></div>
             <label>Situação<select name="status" defaultValue={person.status}><option value="alive">Vivo</option><option value="dead">Morto</option></select></label><label>Custódia<select name="custodyStatus" defaultValue={person.custodyStatus ?? "free"}><option value="free">Em liberdade</option><option value="detained">Preso</option></select></label>
           </div>
