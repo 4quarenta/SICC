@@ -32,72 +32,51 @@ jobs:
 
           app = Path("app/sicc-app.tsx")
           s = app.read_text()
-          replacements = [
-              (
-                  '<em>Nascimento: {formatDate(person.birthDate)} · {custodyStatusLabel[person.custodyStatus ?? "free"]} · {person.approachCount || 0} abordagem(ns)</em>',
-                  '<em>{formatDate(person.birthDate)}</em><em>{person.motherName || "Mãe não informada"}</em>'
-              ),
-              (
-                  '<FormSection title="Origem do registro" subtitle="A localização só é capturada quando o cadastro decorre de abordagem">',
-                  '<FormSection title="Local de abordagem" subtitle="A localização só é capturada quando o cadastro decorre de abordagem">'
-              ),
-              (
-                  '  motherName: string | null;\n  city: string | null;',
-                  '  motherName: string | null;\n  tattooDescription: string | null;\n  city: string | null;'
-              ),
-              (
-                  'const blankRegisterDraft = () => ({ fullName: "", nickname: "", cpf: "", birthDate: "", motherName: "", city: "", state: "PB", notes: "" });',
-                  'const blankRegisterDraft = () => ({ fullName: "", nickname: "", cpf: "", birthDate: "", motherName: "", tattooDescription: "", city: "", state: "PB", notes: "" });'
-              ),
-              (
-                  '<label>Nome da mãe<input name="motherName" value={registerDraft.motherName} onChange={(event) => setRegisterDraft((draft) => ({ ...draft, motherName: event.target.value }))} placeholder="Auxilia a confirmação de identidade" /></label>\n                <div className="locality-fields">',
-                  '<label>Nome da mãe<input name="motherName" value={registerDraft.motherName} onChange={(event) => setRegisterDraft((draft) => ({ ...draft, motherName: event.target.value }))} placeholder="Auxilia a confirmação de identidade" /></label>\n                <label className="wide">Descrição de tatuagens<textarea name="tattooDescription" rows={3} value={registerDraft.tattooDescription} onChange={(event) => setRegisterDraft((draft) => ({ ...draft, tattooDescription: event.target.value }))} placeholder="Ex.: coroa com nome Miguel no pescoço" /></label>\n                <div className="locality-fields">'
-              ),
-              (
-                  '<label>Nome da mãe<input name="motherName" defaultValue={person.motherName ?? ""} /></label>\n            <div className="locality-fields">',
-                  '<label>Nome da mãe<input name="motherName" defaultValue={person.motherName ?? ""} /></label>\n            <label className="wide">Descrição de tatuagens<textarea name="tattooDescription" rows={3} defaultValue={person.tattooDescription ?? ""} placeholder="Descreva tatuagens conhecidas" /></label>\n            <div className="locality-fields">'
-              ),
-          ]
+
+          register_field = '<label className="wide">Descrição de tatuagens<textarea name="tattooDescription" rows={3} value={registerDraft.tattooDescription} onChange={(event) => setRegisterDraft((draft) => ({ ...draft, tattooDescription: event.target.value }))} placeholder="Ex.: coroa com nome Miguel no pescoço" /></label>'
+          edit_field = '<label className="wide">Descrição de tatuagens<textarea name="tattooDescription" rows={3} defaultValue={person.tattooDescription ?? ""} placeholder="Descreva tatuagens conhecidas" /></label>'
+
           changed = False
-          for old, new in replacements:
-              if old in s:
-                  s = s.replace(old, new, 1)
+
+          # Remove the tattoo-description field from Identification, if present.
+          for field in (register_field, edit_field):
+              token = field + '\n'
+              if token in s:
+                  s = s.replace(token, '', 1)
                   changed = True
+
+          # Place it directly below the image/date controls on new registration.
+          register_photos = '''              <div className="photo-grid">
+                <div className="photo-record"><PhotoInput name="facePhotos" label="Fotos do rosto" multiple /><label>Data das fotos *<input name="facePhotoDate" type="date" defaultValue={currentBrasiliaDate()} required /></label></div>
+                <div className="photo-record"><PhotoInput name="tattoos" label="Fotos de tatuagens" multiple /><label>Data das fotos<input name="tattooPhotoDate" type="date" defaultValue={currentBrasiliaDate()} /></label></div>
+              </div>'''
+          register_photos_with_description = register_photos + '\n              ' + register_field
+          if register_photos in s and register_photos_with_description not in s:
+              s = s.replace(register_photos, register_photos_with_description, 1)
+              changed = True
+
+          # Do the same in the edit form.
+          edit_photos = '''          <div className="photo-grid">
+            <div className="photo-record"><PhotoInput name="facePhotos" label="Adicionar fotos do rosto" multiple /><label>Data das fotos<input name="facePhotoDate" type="date" defaultValue={currentBrasiliaDate()} /></label></div>
+            <div className="photo-record"><PhotoInput name="tattoos" label="Adicionar tatuagens" multiple /><label>Data das fotos<input name="tattooPhotoDate" type="date" defaultValue={currentBrasiliaDate()} /></label></div>
+          </div>'''
+          edit_photos_with_description = edit_photos + '\n          ' + edit_field
+          if edit_photos in s and edit_photos_with_description not in s:
+              s = s.replace(edit_photos, edit_photos_with_description, 1)
+              changed = True
+
           if changed:
               app.write_text(s)
 
-          api = Path("supabase/functions/sicc-api/index.ts")
-          a = api.read_text()
-          api_replacements = [
-              (
-                  '    motherName: row.mother_name,\n    city: row.city,',
-                  '    motherName: row.mother_name,\n    tattooDescription: row.tattoo_description,\n    city: row.city,'
-              ),
-              (
-                  'mother_name: clean(form.get("motherName")) || null, city:',
-                  'mother_name: clean(form.get("motherName")) || null, tattoo_description: clean(form.get("tattooDescription")) || null, city:'
-              ),
-              (
-                  '      mother_name: clean(form.get("motherName")) || null,\n      city:',
-                  '      mother_name: clean(form.get("motherName")) || null,\n      tattoo_description: clean(form.get("tattooDescription")) || null,\n      city:'
-              ),
-          ]
-          api_changed = False
-          for old, new in api_replacements:
-              if old in a:
-                  a = a.replace(old, new, 1)
-                  api_changed = True
-          if api_changed:
-              api.write_text(a)
       - name: Commit requested source changes
         run: |
-          if git diff --quiet -- app/sicc-app.tsx supabase/functions/sicc-api/index.ts; then
+          if git diff --quiet -- app/sicc-app.tsx; then
             echo "No source changes needed"
           else
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add app/sicc-app.tsx supabase/functions/sicc-api/index.ts
-            git commit -m "feat(people): add tattoo description field"
+            git add app/sicc-app.tsx
+            git commit -m "chore(ui): move tattoo description below image dates"
             git push
           fi
       - name: Setup Node.js
