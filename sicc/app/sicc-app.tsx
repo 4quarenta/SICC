@@ -1144,6 +1144,7 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
                 <div className="photo-record"><PhotoInput name="facePhotos" label="Fotos do rosto" multiple /><label>Data das fotos *<input name="facePhotoDate" type="date" defaultValue={currentBrasiliaDate()} required /></label></div>
                 <div className="photo-record"><PhotoInput name="tattoos" label="Fotos de tatuagens" multiple /><label>Data das fotos<input name="tattooPhotoDate" type="date" defaultValue={currentBrasiliaDate()} /></label></div>
               </div>
+              <label className="wide">Descrição de tatuagens<textarea name="tattooDescription" rows={3} value={registerDraft.tattooDescription} onChange={(event) => setRegisterDraft((draft) => ({ ...draft, tattooDescription: event.target.value }))} placeholder="Ex.: coroa com nome Miguel no pescoço" /></label>
             </FormSection>
 
             <FormSection title="Endereços" subtitle="Inclua apenas vínculos conhecidos">
@@ -1733,6 +1734,7 @@ function EditPersonModal({
             <div className="photo-record"><PhotoInput name="facePhotos" label="Adicionar fotos do rosto" multiple /><label>Data das fotos<input name="facePhotoDate" type="date" defaultValue={currentBrasiliaDate()} /></label></div>
             <div className="photo-record"><PhotoInput name="tattoos" label="Adicionar tatuagens" multiple /><label>Data das fotos<input name="tattooPhotoDate" type="date" defaultValue={currentBrasiliaDate()} /></label></div>
           </div>
+          <label className="wide">Descrição de tatuagens<textarea name="tattooDescription" rows={3} defaultValue={person.tattooDescription ?? ""} placeholder="Descreva tatuagens conhecidas" /></label>
         </FormSection>
 
         <FormSection title="Endereços" subtitle="Adicione, corrija ou remova vínculos">
