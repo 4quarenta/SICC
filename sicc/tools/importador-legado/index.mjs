@@ -11,7 +11,7 @@
 
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawn } from "node:child_process";
@@ -22,6 +22,8 @@ import { createWorker } from "tesseract.js";
 import { createClient } from "@supabase/supabase-js";
 import { parseInfosegText } from "../../app/infoseg-parser.ts";
 import { readCaptions, combineDetectedLines, selectReading, textQuality, OCR_VERSION } from './caption-ocr.mjs';
+import { attachMultiPersonRecords, MULTI_PERSON_VERSION } from './multi-person.mjs';
+import { preserveExistingFields, reconcileManifestRecord } from './preserve-fields.mjs';
 
 export const ALLOWED_EXTENSIONS = new Set([".jpg", ".jpeg", ".jfif", ".png", ".webp"]);
 export const IMPORT_STATES = [
@@ -387,6 +389,13 @@ function openCheckpoint(path) {
     payload text not null,
     created_at text not null
   );`);
+  db.exec(`create table if not exists multi_person_history (
+    source_path text not null,
+    rule_version text not null,
+    prior_payload text not null,
+    saved_at text not null,
+    primary key(source_path,rule_version)
+  );`);
   const fileColumns = db.prepare("pragma table_info(files)").all().map((column) => column.name);
   if (!fileColumns.includes("record_id")) db.exec("alter table files add column record_id text");
   if (!fileColumns.includes("payload")) db.exec("alter table files add column payload text");
@@ -423,7 +432,13 @@ function saveStagedRecord(db, record) {
 
 async function writeStageManifest(db, manifestPath, runId) {
   const records = db.prepare("select payload from files where payload is not null order by source_path").all().map((row) => JSON.parse(row.payload));
-  await writeFile(manifestPath, JSON.stringify({ version: 1, runId, generatedAt: new Date().toISOString(), records }, null, 2), "utf8");
+  let previous = {};
+  try { previous = JSON.parse(await readFile(manifestPath, 'utf8')); } catch (error) { if (error.code !== 'ENOENT') throw error; }
+  const knownIds = new Set(records.map(r => r.recordId));
+  records.push(...(previous.records ?? []).filter(r => !knownIds.has(r.recordId)));
+  const temporary = `${manifestPath}.tmp-${process.pid}`;
+  await writeFile(temporary, JSON.stringify({ ...previous, version: previous.version ?? 1, runId, generatedAt: new Date().toISOString(), records }, null, 2), "utf8");
+  await rename(temporary, manifestPath);
   return records.length;
 }
 
@@ -983,6 +998,11 @@ async function extractFullTextOne({ db, row, options }) {
   const sourceSha256 = row.source_sha256;
   const previousPayload = row.payload ? JSON.parse(row.payload) : {};
   if (fullTextCheckpointComplete(previousPayload, options.forceFullText)) {
+    if (previousPayload.processingStatus === 'MULTIPLE_PEOPLE' && previousPayload.multiPersonVersion !== MULTI_PERSON_VERSION) {
+      const enriched = attachMultiPersonRecords(previousPayload, classifyFullText);
+      db.prepare('insert or ignore into multi_person_history values(?,?,?,?)').run(sourcePath, MULTI_PERSON_VERSION, row.payload, new Date().toISOString());
+      db.prepare('update files set payload=?,reason=?,updated_at=? where source_path=?').run(JSON.stringify(enriched), enriched.reason, new Date().toISOString(), sourcePath);
+    }
     return { state: row.state, sourcePath, sourceSha256, skipped: true };
   }
   const original = await readFile(sourcePath);
@@ -1008,7 +1028,7 @@ async function extractFullTextOne({ db, row, options }) {
     mediaId: row.media_id ?? null,
     recordId: previousPayload.recordId ?? row.record_id ?? randomUUID(),
   };
-  const payload = buildExtractionPayload({ base, classification, options, ocrTexts, previousPayload });
+  let payload = buildExtractionPayload({ base, classification, options, ocrTexts, previousPayload });
   payload.capturedAt = previousPayload.capturedAt ?? payload.capturedAt;
   payload.fieldConflicts = classification.fieldConflicts;
   payload.imageText = fullText.text;
@@ -1022,16 +1042,19 @@ async function extractFullTextOne({ db, row, options }) {
   // Preserve any copies produced before the phase-2 abort, but never use them
   // as an OCR source and never overwrite them in this mode.
   if (row.compressed_bytes != null) payload.compressedBytes = row.compressed_bytes;
+  payload = preserveExistingFields(previousPayload, payload);
+  payload = attachMultiPersonRecords(payload, classifyFullText);
+  if (payload.persons && row.payload) db.prepare('insert or ignore into multi_person_history values(?,?,?,?)').run(sourcePath, MULTI_PERSON_VERSION, row.payload, new Date().toISOString());
   db.prepare("update files set state=?, reason=?, original_bytes=?, record_id=?, payload=?, updated_at=? where source_path=?").run(
-    state,
-    classification.reason ?? null,
+    payload.processingStatus,
+    payload.reason ?? null,
     sourceStat.size,
     base.recordId,
     JSON.stringify(payload),
     new Date().toISOString(),
     sourcePath,
   );
-  return { ...base, payload };
+  return { ...base, state: payload.processingStatus, payload };
 }
 
 async function extractFullTextErrorRecord({ db, row, error }) {
@@ -1058,6 +1081,7 @@ async function writeFullTextProgress(db, statusPath, total, processed, completed
   const versionRows = db.prepare("select json_extract(payload,'$.imageText') <> '' as hasText, json_extract(payload,'$.ocrQuality.readable') as readable, json_extract(payload,'$.ocrReviewStatus') as review from files where json_extract(payload, '$.ocrVersion') = ?").all(OCR_VERSION);
   const textCount = versionRows.filter(r => r.hasText).length;
   const readableRecords = versionRows.filter(r => r.readable).length;
+  const multi = db.prepare("select count(*) as images, coalesce(sum(json_array_length(payload,'$.persons')),0) as persons from files where json_extract(payload,'$.multiPersonVersion') = ?").get(MULTI_PERSON_VERSION);
   await writeFile(statusPath, JSON.stringify({
     completed,
     ocrVersion: OCR_VERSION,
@@ -1068,6 +1092,8 @@ async function writeFullTextProgress(db, statusPath, total, processed, completed
     imageTextRecords: textCount,
     readableRecords,
     reviewRecords: versionRows.filter(r => r.review !== 'READY').length,
+    sharedImages: Number(multi.images),
+    extractedPersonsInSharedImages: Number(multi.persons),
     counts: states,
     updatedAt: new Date().toISOString(),
   }, null, 2), "utf8");
@@ -1086,6 +1112,8 @@ async function writeReviewQueue(db, path) {
       sourceImagePath: payload.sourceImagePath,
       imageText: payload.imageText ?? "",
       ocrReadings: payload.ocrReadings ?? [],
+      persons: payload.persons ?? [],
+      sharedImageId: payload.sharedImageId ?? null,
       currentFields: {
         fullName: payload.fullName ?? null,
         cpf: payload.cpf ?? null,
@@ -1249,6 +1277,29 @@ async function run() {
   const stageManifestPath = join(workDir, "manifest.json");
   const statusPath = join(workDir, "status.json");
   const db = openCheckpoint(checkpointPath);
+  if (extractFullText) {
+    let manifest;
+    try { manifest = JSON.parse(await readFile(stageManifestPath, 'utf8')); } catch (error) { if (error.code !== 'ENOENT') throw error; }
+    if (manifest) {
+      const manifestById = new Map((manifest.records ?? []).map(record => [record.recordId, record]));
+      const currentRows = db.prepare('select source_path,payload from files where payload is not null').all();
+      db.exec('begin immediate');
+      try {
+        for (const row of currentRows) {
+          const current = JSON.parse(row.payload);
+          const manifestRecord = manifestById.get(current.recordId);
+          const merged = reconcileManifestRecord(manifestRecord, current);
+          const addedMetadata = manifestRecord && Object.keys(manifestRecord).some(k => !Object.hasOwn(current, k));
+          const addedHistory = JSON.stringify(merged.previousFieldValues) !== JSON.stringify(current.previousFieldValues) && Object.keys(merged.previousFieldValues ?? {}).length;
+          if (merged.preservedFields?.length || addedMetadata || addedHistory) {
+            db.prepare('insert or ignore into multi_person_history values(?,?,?,?)').run(row.source_path, 'manifest-reconcile-v1', row.payload, new Date().toISOString());
+            db.prepare('update files set payload=?,state=?,reason=? where source_path=?').run(JSON.stringify(merged), merged.processingStatus, merged.reason, row.source_path);
+          }
+        }
+        db.exec('commit');
+      } catch (error) { db.exec('rollback'); throw error; }
+    }
+  }
   // A later source directory is intentionally allowed to append to the same
   // local manifest/checkpoint. Count the union so the progress denominator
   // remains correct across multiple legacy volumes.

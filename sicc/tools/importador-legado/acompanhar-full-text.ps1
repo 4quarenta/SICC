@@ -87,6 +87,7 @@ while ($true) {
   Write-Host "Restantes:    $remaining"
   Write-Host "ImageText:    $($(if ($status -and $null -ne $status.imageTextRecords) { $status.imageTextRecords } else { 0 }))"
   if ($status.ocrVersion) { Write-Host "Versao OCR:   $($status.ocrVersion)" }
+  if ($null -ne $status.sharedImages) { Write-Host "Coletivas:    $($status.sharedImages) imagens; $($status.extractedPersonsInSharedImages) pessoas extraidas para revisao" }
   if ($null -ne $status.readableRecords) { Write-Host "Legibilidade: $($status.readableRecords) passaram na triagem automatica (nao e revisao humana)" }
   Write-Host "Taxa:         $($(if ($rate) { "$rate imagens/min" } else { "calculando" }))"
   Write-Host "Previsao:     $eta"

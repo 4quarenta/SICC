@@ -69,6 +69,39 @@ array JSON com `recordId` e `sourceImagePath`. Ele gera `comparacao-ocr.html`
 com original e transcrição lado a lado, resultados JSON e resumo estatístico
 no diretório de trabalho. Não versionar as entradas nem os relatórios.
 
+Imagens com várias pessoas permanecem no mesmo manifest como um registro de
+imagem (`recordType: shared_image`, estado `MULTIPLE_PEOPLE`). Este estado
+agora indica uma imagem coletiva, não descarte automático. `persons` contém
+os registros individuais extraídos dos blocos de texto, cada um com um ID
+estável, `parentRecordId`, `sharedImageId`, o mesmo `sourceImagePath` e hash.
+Não há cópia, recorte ou identificação facial. Campos no nível da imagem
+ficam vazios para evitar que dados de pessoas diferentes sejam misturados.
+
+Rótulos e posição dos blocos delimitam os dados. O nome do arquivo serve como
+indício somente quando confirmado pelo OCR. Texto que cruza colunas fica em
+`multiPersonUnassignedText`. Cada pessoa tem seu próprio `imageText`, campos
+e lista de campos obrigatórios ausentes. As associações propostas ficam em
+`REVIEW`, com `associationReviewRequired: true`, antes de liberar cadastro;
+CPF válido sozinho não confirma que o bloco foi atribuído corretamente.
+Sem dois nomes textuais suficientes, `persons` fica vazio e o OCR completo
+permanece disponível para revisão. O merge simples por ID de imagem rejeita
+correções individuais para imagens coletivas.
+
+Na retomada, resultados de OCR da versão atual são reaproveitados para
+montar `persons`; não é preciso reler nem recomprimir as imagens anteriores.
+O checkpoint guarda o payload anterior em `multi_person_history`. O monitor
+mostra a quantidade de imagens coletivas e de pessoas extraídas nesses itens.
+
+O `manifest.json` existente é mantido e enriquecido. IDs e metadados adicionais
+são preservados. Na retomada, campos que só constam nele são reconciliados com
+o checkpoint por ID e hash. Leituras novas vazias não apagam dados anteriores:
+`preservedFields` e `fieldEvidence` indicam valores ainda não confirmados e o
+registro fica em revisão. Valores substituídos permanecem em
+`previousFieldValues`. Nas imagens coletivas, valores antigos sem atribuição
+individual segura permanecem em `unassignedExistingFields`, evitando copiar
+a mesma filiação ou CPF para todas as pessoas. Registros extras do manifest
+não são removidos quando o checkpoint é exportado.
+
 Enquanto o lote estiver executando, acompanhe o progresso em outra janela do
 PowerShell. O monitor lê `full-text-status.json`, calcula taxa e previsão e
 indica se o processo está ativo, parado parcialmente ou concluído:

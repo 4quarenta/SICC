@@ -40,6 +40,9 @@ async function run() {
     const row = find.get(correction.recordId);
     if (!row?.payload || typeof correction.imageText !== "string") { rejected += 1; continue; }
     const payload = JSON.parse(row.payload);
+    // Shared images contain several textual subjects. A correction addressed
+    // only to the image cannot safely replace one person's identity fields.
+    if (payload.recordType === 'shared_image') { rejected += 1; continue; }
     const fields = correction.fields ?? correction.currentFields ?? {};
     const next = {
       ...payload,
