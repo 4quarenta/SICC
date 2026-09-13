@@ -27,3 +27,14 @@ uploads/
 storage/
 supabase/.temp/
 supabase/.branches/
+
+# Acervo legado, staging, checkpoints e relatórios locais
+tools/importador-legado/.work/
+tools/importador-legado/*.sqlite
+tools/importador-legado/*.json
+tools/importador-legado/*.jsonl
+tools/importador-legado/*-status.json
+tools/importador-legado/*CONCLUIDO.txt
+tools/importador-legado/__pycache__/
+.sites-runtime/
+.wrangler/
