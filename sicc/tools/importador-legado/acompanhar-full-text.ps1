@@ -2,7 +2,8 @@ param(
   [Parameter(Mandatory = $true)]
   [string] $WorkDir,
   [ValidateRange(1, 60)]
-  [int] $IntervalSeconds = 5
+  [int] $IntervalSeconds = 5,
+  [switch] $Once
 )
 
 # Monitor da releitura OCR completa. O full-text-status.json e a fonte de
@@ -11,6 +12,7 @@ $resolvedWorkDir = [IO.Path]::GetFullPath($WorkDir)
 $statusPath = Join-Path $resolvedWorkDir "full-text-status.json"
 $lastProcessed = $null
 $lastSampleAt = $null
+$lastStatus = $null
 
 function Read-FullTextStatus {
   if (-not (Test-Path -LiteralPath $statusPath)) { return $null }
@@ -26,6 +28,7 @@ function Read-FullTextStatus {
 while ($true) {
   $now = Get-Date
   $status = Read-FullTextStatus
+  if ($status) { $lastStatus = $status } else { $status = $lastStatus }
   $total = 0
   $processed = 0
   $remaining = 0
@@ -50,7 +53,9 @@ while ($true) {
     })
   $statusAge = if ($statusTime) { ($now - $statusTime).TotalSeconds } else { [double]::PositiveInfinity }
 
-  if ($status -and $status.completed) {
+  if ($status -and $status.paused) {
+    $state = "PAUSADO - $($status.pauseReason)"
+  } elseif ($status -and $status.completed) {
     $state = "CONCLUIDO"
   } elseif ($processes.Count -eq 0) {
     if ($total -gt 0 -and $processed -lt $total) {
@@ -74,24 +79,29 @@ while ($true) {
   } else { "calculando" }
 
   try { Clear-Host -ErrorAction Stop } catch { }
-  Write-Progress -Activity "OCR completo local do SICC" -Status "$processed / $total ($percent%)" -PercentComplete ([math]::Min(100, $percent))
   Write-Host "SICC - acompanhamento do OCR completo"
+  $filled = [math]::Min(40, [math]::Max(0, [int][math]::Floor($percent * .4)))
+  Write-Host ("[" + ("#" * $filled) + ("-" * (40 - $filled)) + "] $percent%")
   Write-Host "Estado:       $state"
   Write-Host "Progresso:    $processed / $total ($percent%)"
   Write-Host "Restantes:    $remaining"
   Write-Host "ImageText:    $($(if ($status -and $null -ne $status.imageTextRecords) { $status.imageTextRecords } else { 0 }))"
+  if ($status.ocrVersion) { Write-Host "Versao OCR:   $($status.ocrVersion)" }
+  if ($null -ne $status.readableRecords) { Write-Host "Legibilidade: $($status.readableRecords) passaram na triagem automatica (nao e revisao humana)" }
   Write-Host "Taxa:         $($(if ($rate) { "$rate imagens/min" } else { "calculando" }))"
   Write-Host "Previsao:     $eta"
   Write-Host "Atualizacao:  $($(if ($statusTime) { $statusTime.ToString("yyyy-MM-dd HH:mm:ss") } else { "ausente" }))"
   if ($status -and $status.counts) {
-    Write-Host ("Estados:      " + (($status.counts.PSObject.Properties | ForEach-Object { "$($_.Name)=$($_.Value)" }) -join ", "))
+    Write-Host ("Acervo todo:  " + (($status.counts.PSObject.Properties | ForEach-Object { "$($_.Name)=$($_.Value)" }) -join ", "))
   }
   Write-Host "Leitura:      $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
 
-  if (($status -and $status.completed) -or $processes.Count -eq 0) {
+  if ($Once -or ($status -and ($status.completed -or $status.paused)) -or $processes.Count -eq 0) {
     break
   }
-  $lastProcessed = $processed
-  $lastSampleAt = $now
+  if ($null -eq $lastProcessed -and $status) {
+    $lastProcessed = $processed
+    $lastSampleAt = $now
+  }
   Start-Sleep -Seconds $IntervalSeconds
 }

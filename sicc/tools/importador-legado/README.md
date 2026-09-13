@@ -33,6 +33,42 @@ local antes do lote completo.
 Use `--force-full-text` quando o parser tiver sido corrigido e todos os
 registros precisarem ser relidos, mesmo os que já possuem `imageText`.
 
+A versão `caption-v2` usa RapidOCR/ONNX (detector PP-OCRv5 mobile e leitor
+latino) na imagem inteira, seguido de Tesseract nos caracteres amarelos
+isolados temporariamente do fundo. A posição da legenda não é fixa. As
+imagens de origem não são modificadas; máscaras de OCR não são mídia de saída.
+Instale `requirements-ocr.txt` em um ambiente Python privado. O primeiro uso
+baixa os pesos públicos; a inferência das imagens acontece neste computador.
+
+```powershell
+node tools/importador-legado/index.mjs --work C:\caminho\work --extract-full-text --tesseract C:\caminho\tesseract.exe --paddle-python C:\caminho\venv\Scripts\python.exe
+```
+
+`--paddle-python` mantém o nome histórico do parâmetro, mas nesta fase inicia
+`scene-ocr-worker.py` com RapidOCR. Use só um processo. Registros da versão
+antiga são relidos automaticamente; registros concluídos da versão atual são
+preservados na retomada. Não repita `--force-full-text` para retomar uma pausa.
+
+`imageText` recebe as linhas selecionadas em ordem de posição. `ocrReadings`
+preserva as saídas alternativas; `ocrRegions` registra origem e coordenadas.
+Leituras de baixa confiança não entram no texto selecionado, mas permanecem
+na alternativa bruta. Espaços internos e quebras retornadas não são
+normalizados. `ocrQuality.readable` é uma triagem heurística, não garantia de
+transcrição correta. Casos insuficientes permanecem em revisão, mesmo com
+CPF sintaticamente válido. A disponibilidade de texto não confirma que uma
+imagem contém apenas uma pessoa. Falha do motor pausa o lote, em vez de
+marcar milhares de imagens com resultados vazios.
+
+Antes de uma nova estratégia, faça backup local do SQLite. Valide um piloto
+com fontes de estilos diferentes e compare as leituras às imagens. Um piloto
+de uma única fonte ou apenas legendas amarelas não valida todo o acervo.
+
+O piloto reproduzível não grava no checkpoint: `piloto-ocr.mjs --work ...
+--samples ... --python ... --tesseract ...`. A lista privada de amostras é um
+array JSON com `recordId` e `sourceImagePath`. Ele gera `comparacao-ocr.html`
+com original e transcrição lado a lado, resultados JSON e resumo estatístico
+no diretório de trabalho. Não versionar as entradas nem os relatórios.
+
 Enquanto o lote estiver executando, acompanhe o progresso em outra janela do
 PowerShell. O monitor lê `full-text-status.json`, calcula taxa e previsão e
 indica se o processo está ativo, parado parcialmente ou concluído:

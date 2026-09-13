@@ -21,6 +21,7 @@ import sharp from "sharp";
 import { createWorker } from "tesseract.js";
 import { createClient } from "@supabase/supabase-js";
 import { parseInfosegText } from "../../app/infoseg-parser.ts";
+import { readCaptions, combineDetectedLines, selectReading, textQuality, OCR_VERSION } from './caption-ocr.mjs';
 
 export const ALLOWED_EXTENSIONS = new Set([".jpg", ".jpeg", ".jfif", ".png", ".webp"]);
 export const IMPORT_STATES = [
@@ -493,7 +494,7 @@ async function ocrImage(worker, buffer, psm = "6") {
   return result.data.text ?? "";
 }
 
-async function nativeOcr(tesseractPath, buffer, psm, tempDir) {
+export async function nativeOcr(tesseractPath, buffer, psm, tempDir) {
   const inputPath = join(tempDir, `ocr-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}.png`);
   await writeFile(inputPath, buffer);
   try {
@@ -501,18 +502,19 @@ async function nativeOcr(tesseractPath, buffer, psm, tempDir) {
       const child = spawn(tesseractPath, [inputPath, "stdout", "-l", "por", "--psm", psm], { stdio: ["ignore", "pipe", "pipe"] });
       let stdout = "";
       let stderr = "";
+      const timer = setTimeout(() => { child.kill(); reject(new Error('Tesseract excedeu 45 segundos na regiao')); }, 45000);
       child.stdout.on("data", (chunk) => { stdout += chunk.toString(); });
       child.stderr.on("data", (chunk) => { stderr += chunk.toString(); });
-      child.on("error", reject);
-      child.on("close", (code) => code === 0 ? resolveText(stdout) : reject(new Error(`OCR local falhou (${code}): ${stderr.slice(0, 160)}`)));
+      child.on("error", error => { clearTimeout(timer); reject(error); });
+      child.on("close", (code) => { clearTimeout(timer); code === 0 ? resolveText(stdout) : reject(new Error(`OCR local falhou (${code}): ${stderr.slice(0, 160)}`)); });
     });
   } finally {
     await rm(inputPath, { force: true });
   }
 }
 
-function createPaddleOcrWorker(pythonPath) {
-  const scriptPath = fileURLToPath(new URL("./paddle-ocr-worker.py", import.meta.url));
+export function createPaddleOcrWorker(pythonPath, scene = false) {
+  const scriptPath = fileURLToPath(new URL(scene ? './scene-ocr-worker.py' : './paddle-ocr-worker.py', import.meta.url));
   const child = spawn(pythonPath, [scriptPath], {
     stdio: ["pipe", "pipe", "pipe"],
     env: { ...process.env, PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK: "True", PYTHONUTF8: "1", PYTHONIOENCODING: "utf-8" },
@@ -534,6 +536,7 @@ function createPaddleOcrWorker(pythonPath) {
     } catch { /* mensagens não JSON do runtime local não contêm dados do lote */ }
   });
   child.on("exit", (code) => {
+    disabled = true;
     for (const waiter of pending.values()) waiter.reject(new Error(`PaddleOCR local encerrou (${code ?? "sem código"}). ${stderrTail.slice(-400)}`));
     pending.clear();
   });
@@ -560,7 +563,7 @@ function createPaddleOcrWorker(pythonPath) {
   };
 }
 
-async function recognizePaddleSafely(paddleWorker, buffer) {
+export async function recognizePaddleSafely(paddleWorker, buffer) {
   if (!paddleWorker || paddleWorker.disabled) return "";
   let timer;
   try {
@@ -892,18 +895,106 @@ async function extractDataOne({ db, sourcePath, options }) {
   return base;
 }
 
+export async function readFullText(original, ocr) {
+  if (!ocr.paddleWorker || ocr.paddleWorker.disabled) throw new Error('Detector local indisponivel; lote deve permanecer pausado');
+  const full = await sharp(original).rotate().resize({ width: 1600, height: 1600, fit: 'inside', withoutEnlargement: true }).png().toBuffer();
+  let timer;
+  let neural;
+  try {
+    neural = await Promise.race([
+      ocr.paddleWorker.recognize(full),
+      new Promise((_, reject) => { timer = setTimeout(() => { ocr.paddleWorker.abort(); reject(new Error('Detector local excedeu 120 segundos; lote pausado')); }, 120000); }),
+    ]);
+  } finally { clearTimeout(timer); }
+  const captions = await readCaptions(original, (buffer, psm) => nativeOcr(ocr.tesseractPath, buffer, psm, ocr.tempDir), isValidCpf);
+  const merged = combineDetectedLines(neural, captions);
+  return { text: merged.text || neural.text || '', captionText: captions.text, readings: [neural.text, ...captions.readings], regions: merged.regions, quality: textQuality(merged.text || neural.text || '') };
+}
+
+export function classifyFullText(filename, fullText) {
+  const parsedFilename = parseFilename(filename);
+  const result = classifyRecord({ filename, parsedFilename, ocrTexts: [fullText.text] });
+  const lines = fullText.text.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+  let captionLines = (fullText.captionText ?? '').split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+  const datesIn = text => [...text.matchAll(/\b(\d{2})[/.](\d{2})[/.](\d{4})\b/g)].map(m => parseBrazilianDate(`${m[1]}/${m[2]}/${m[3]}`)).filter(Boolean);
+  const normalize = s => normalizeName(s ?? '');
+  const conflicts = [];
+  const names = lines.map(s => s.replace(/[,;]?\s*\d+\s+ANOS\.?$/i, '').replace(/^NOME(?: COMPLETO)?\s*:?\s*/i, ''));
+  const filenameKey = normalize(parsedFilename.fullName);
+  const matchingNames = [...new Set(names.filter(s => likelyPersonName(s) && normalize(s).startsWith(filenameKey) && filenameKey.length >= 8))];
+  if (matchingNames.length) result.fullName = matchingNames.sort((a, b) => b.length - a.length)[0];
+  const lastNameIndex = lines.findLastIndex(s => normalize(s) === normalize(result.fullName));
+  // A repeated name after a photographed document anchors the caption below
+  // that document, avoiding its issue date and scrambled vertical labels.
+  if (lastNameIndex >= 0 && lines.filter(s => normalize(s) === normalize(result.fullName)).length > 1) captionLines = lines.slice(lastNameIndex);
+  // Prioritize explicit OCR labels over ambiguous suffixes in the filename.
+  result.nickname = lines.map(s => s.match(/^(?:VULGO|ALCUNHA|APELIDO)\s*:?\s*(.+)/i)?.[1]).find(Boolean) ?? parsedFilename.nickname ?? null;
+  result.motherName = null;
+  const motherCandidates = [];
+  for (let i = 0; i < lines.length; i++) {
+    const match = lines[i].match(/^M[ÃAÄ]E\s*:?\s*(.+)$/i);
+    if (!match) continue;
+    let candidate = match[1];
+    // A surname wrapped immediately below a mother label belongs to that line.
+    if (/\b(?:DE|DA|DO|DOS|DAS)$/i.test(candidate) && /^[\p{L}]{3,}(?:\s+[\p{L}]{3,})?$/u.test(lines[i + 1] ?? '')) candidate += ` ${lines[i + 1]}`;
+    if (likelyPersonName(candidate)) motherCandidates.push(candidate);
+  }
+  const captionName = captionLines.findIndex(s => normalize(s) === normalize(result.fullName));
+  const nextCaption = captionLines[captionName + 1];
+  if (!motherCandidates.length && captionName >= 0 && captionLines.some(s => /\d{3}/.test(s)) && datesIn(captionLines.join('\n')).length === 1) {
+    const possible = captionLines.slice(captionName + 1).filter(s => likelyPersonName(s) && s === s.toUpperCase() && s.split(/\s+/).length >= 3 && !/FORAGID|RECAPTURA|POLICIA|CIVIL|NATAL|PRIS|PRESO|APREEND|VULGO|FOTO|CRIME/i.test(s));
+    if (possible.length === 1) motherCandidates.push(possible[0]);
+  }
+  const mothers = [...new Map(motherCandidates.map(s => [normalize(s), s])).values()].filter(s => normalize(s) !== normalize(result.fullName));
+  if (mothers.length === 1) result.motherName = mothers[0];
+  if (mothers.length > 1) conflicts.push('motherName');
+  const labeledDates = lines.filter(s => /^(?:NASC|DN\b|DT\.?\s*NASC|DATA\s*(?:DE\s*)?NASC)/i.test(s)).flatMap(datesIn);
+  const captionDates = datesIn(captionLines.filter(s => !/PRIS|PRESO|CAPTURA|EMISS|EXPEDI/i.test(s)).join('\n'));
+  const dateCandidates = [...new Set(labeledDates.length ? labeledDates : captionName >= 0 ? captionDates : [])];
+  result.birthDate = dateCandidates.length === 1 ? dateCandidates[0] : null;
+  if (!result.birthDate && !dateCandidates.length) {
+    const nameLine = lines.findIndex(s => normalize(s.replace(/[,;]?\s*\d+\s+ANOS\.?$/i, '')) === normalize(result.fullName));
+    const nearby = nameLine >= 0 ? lines.slice(nameLine + 1, nameLine + 7) : [];
+    const unlabelledDates = nearby.filter(s => /^\d{2}[/.]\d{2}[/.]\d{4}$/.test(s)).flatMap(datesIn);
+    if (result.motherName && new Set(unlabelledDates).size === 1) result.birthDate = unlabelledDates[0];
+  }
+  if (dateCandidates.length > 1) conflicts.push('birthDate');
+  // A long numeric candidate must actually be printed; letter-heavy textures
+  // are not evidence that the image contains an invalid CPF.
+  const explicitCity = captionLines.map(s => s.match(/^([\p{L} ]+)\s+(?:-\s*)?(AC|AL|AP|AM|BA|CE|DF|ES|GO|MA|MT|MS|MG|PA|PB|PR|PE|PI|RJ|RN|RS|RO|RR|SC|SP|SE|TO)$/u)).find(Boolean);
+  if (explicitCity) { result.city = explicitCity[1].trim(); result.stateCode = explicitCity[2]; }
+  if (result.state !== 'MULTIPLE_PEOPLE') {
+    if (conflicts.length || !fullText.quality.readable) result.state = 'REVIEW';
+    else if (!result.cpf) result.state = /\bCPF\b/i.test(fullText.text) || lines.some(s => /^[\d.\s-]+$/.test(s) && s.replace(/\D/g, '').length === 11) ? 'INVALID_CPF' : 'INSUFFICIENT_DATA';
+    else if (!result.fullName || !result.birthDate) result.state = 'REVIEW';
+    else result.state = 'READY';
+    result.reason = result.state === 'READY' ? 'nome, CPF e nascimento validados' : conflicts.length ? `Conflitos: ${conflicts.join(', ')}` : result.state === 'INVALID_CPF' ? 'CPF lido nao validado' : 'Evidencia insuficiente; revisao visual necessaria';
+  }
+  result.fieldConflicts = conflicts;
+  return result;
+}
+
+export function fullTextCheckpointComplete(payload, force = false) {
+  return !force && payload.ocrVersion === OCR_VERSION && Boolean(payload.ocrCompletedAt) && payload.ocrReviewStatus !== 'ERROR';
+}
+
 async function extractFullTextOne({ db, row, options }) {
   const sourcePath = row.source_path;
   const sourceSha256 = row.source_sha256;
   const previousPayload = row.payload ? JSON.parse(row.payload) : {};
-  if (!options.forceFullText && previousPayload.ocrProvider === "local_tesseract_full" && typeof previousPayload.imageText === "string") {
+  if (fullTextCheckpointComplete(previousPayload, options.forceFullText)) {
     return { state: row.state, sourcePath, sourceSha256, skipped: true };
   }
   const original = await readFile(sourcePath);
   const sourceStat = await stat(sourcePath);
   const parsedFilename = parseFilename(basename(sourcePath));
-  const ocrTexts = await localOcr(options.ocr, await prepareOcrBuffers(original), false, sourcePath);
-  const classification = classifyRecord({ filename: basename(sourcePath), ocrTexts, parsedFilename });
+  const fullText = await readFullText(original, options.ocr);
+  const ocrTexts = [fullText.text];
+  const classification = classifyFullText(basename(sourcePath), fullText);
+  if (!fullText.quality.readable && classification.state !== 'MULTIPLE_PEOPLE') {
+    classification.state = 'REVIEW';
+    classification.reason = 'Leitura OCR de baixa qualidade; revisao visual necessaria';
+  }
   const state = classification.state === "READY" ? "READY_FOR_COMPRESSION" : classification.state;
   const base = {
     sourcePath,
@@ -918,6 +1009,16 @@ async function extractFullTextOne({ db, row, options }) {
     recordId: previousPayload.recordId ?? row.record_id ?? randomUUID(),
   };
   const payload = buildExtractionPayload({ base, classification, options, ocrTexts, previousPayload });
+  payload.capturedAt = previousPayload.capturedAt ?? payload.capturedAt;
+  payload.fieldConflicts = classification.fieldConflicts;
+  payload.imageText = fullText.text;
+  payload.ocrReadings = fullText.readings;
+  payload.ocrRegions = fullText.regions;
+  payload.ocrQuality = fullText.quality;
+  payload.ocrVersion = OCR_VERSION;
+  payload.ocrProvider = 'local_rapidocr_caption';
+  payload.ocrProcessing = 'local_rapidocr_caption';
+  payload.sourceRelativePath = previousPayload.sourceRelativePath ?? payload.sourceRelativePath;
   // Preserve any copies produced before the phase-2 abort, but never use them
   // as an OCR source and never overwrite them in this mode.
   if (row.compressed_bytes != null) payload.compressedBytes = row.compressed_bytes;
@@ -935,8 +1036,12 @@ async function extractFullTextOne({ db, row, options }) {
 
 async function extractFullTextErrorRecord({ db, row, error }) {
   const payload = row.payload ? JSON.parse(row.payload) : {};
-  payload.ocrProvider = "local_tesseract_full";
+  payload.ocrVersion = OCR_VERSION;
+  payload.ocrProvider = "local_rapidocr_caption";
   payload.ocrReviewStatus = "ERROR";
+  payload.processingStatus = 'ERROR';
+  payload.eligibleForCompression = false;
+  payload.imageText = null;
   payload.ocrError = error instanceof Error ? error.message.slice(0, 240) : "erro desconhecido";
   db.prepare("update files set state='ERROR', reason=?, payload=?, updated_at=? where source_path=?").run(
     payload.ocrError,
@@ -950,13 +1055,19 @@ async function extractFullTextErrorRecord({ db, row, error }) {
 async function writeFullTextProgress(db, statusPath, total, processed, completed = false) {
   const states = Object.fromEntries(IMPORT_STATES.map((state) => [state, 0]));
   for (const row of db.prepare("select state, count(*) as count from files group by state").all()) states[row.state] = Number(row.count);
-  const textCount = Number(db.prepare("select count(*) as count from files where instr(payload, '\"imageText\":') > 0").get().count);
+  const versionRows = db.prepare("select json_extract(payload,'$.imageText') <> '' as hasText, json_extract(payload,'$.ocrQuality.readable') as readable, json_extract(payload,'$.ocrReviewStatus') as review from files where json_extract(payload, '$.ocrVersion') = ?").all(OCR_VERSION);
+  const textCount = versionRows.filter(r => r.hasText).length;
+  const readableRecords = versionRows.filter(r => r.readable).length;
   await writeFile(statusPath, JSON.stringify({
     completed,
+    ocrVersion: OCR_VERSION,
+    pid: process.pid,
     sourceFileCount: total,
     processed,
     remaining: Math.max(0, total - processed),
     imageTextRecords: textCount,
+    readableRecords,
+    reviewRecords: versionRows.filter(r => r.review !== 'READY').length,
     counts: states,
     updatedAt: new Date().toISOString(),
   }, null, 2), "utf8");
@@ -995,7 +1106,7 @@ async function writeReviewQueue(db, path) {
 
 function bestImageText(ocrTexts) {
   const readings = (Array.isArray(ocrTexts) ? ocrTexts : [ocrTexts]).map((value) => String(value ?? ""));
-  return readings.find((value) => value.trim()) ?? "";
+  return selectReading(readings);
 }
 
 function buildExtractionPayload({ base, classification, options, ocrTexts = null, previousPayload = null }) {
@@ -1010,7 +1121,7 @@ function buildExtractionPayload({ base, classification, options, ocrTexts = null
     sourceSha256: base.sourceSha256,
     originalBytes: base.originalBytes,
     processingStatus: base.state,
-    eligibleForCompression: hasName && hasCpf && hasBirthDate && base.state !== "MULTIPLE_PEOPLE",
+    eligibleForCompression: hasName && hasCpf && hasBirthDate && base.state === "READY_FOR_COMPRESSION",
     missingRequiredFields: [!hasName ? "fullName" : null, !hasCpf ? "cpf" : null, !hasBirthDate ? "birthDate" : null].filter(Boolean),
     reason: base.reason ?? null,
     fullName: classification.fullName ?? null,
@@ -1128,6 +1239,7 @@ async function run() {
   if (!dryRun && !stageOnly && !extractDataOnly && !extractFullText && (!projectUrl || !serviceKey)) throw new Error("Informe --url e a variável SUPABASE_SERVICE_ROLE_KEY para importação real.");
   if (extractDataOnly && !tesseractPath) throw new Error("A extração de dados exige um Tesseract local.");
   if (extractFullText && !tesseractPath) throw new Error("A extração completa exige um Tesseract local.");
+  if (extractFullText && !paddlePythonPath) throw new Error('Informe --paddle-python para detectar texto na imagem completa.');
   if (extractDataOnly && !quickExtraction && !paddlePythonPath) throw new Error("A extração completa exige --paddle-python local.");
   const files = sourceDir ? (await listImages(sourceDir)).slice(0, limit || undefined) : [];
   await mkdir(workDir, { recursive: true });
@@ -1146,14 +1258,14 @@ async function run() {
     : [];
   const sourceFileCount = checkpointSourcePaths.size + files.filter((file) => !checkpointSourcePaths.has(file)).length;
   if (stageOnly) await mkdir(stageImagesDir, { recursive: true });
-  const api = !stageOnly && !extractDataOnly && serviceKey && projectUrl ? createClient(projectUrl, serviceKey, { auth: { autoRefreshToken: false, persistSession: false } }) : null;
+  const api = !stageOnly && !extractDataOnly && !extractFullText && serviceKey && projectUrl ? createClient(projectUrl, serviceKey, { auth: { autoRefreshToken: false, persistSession: false } }) : null;
   const admin = api ? await findAdmin(api) : null;
   const existing = api ? await fetchExisting(api) : { peopleByCpf: new Map(), mediaBySha: new Map() };
   const ocrTempDir = join(workDir, "ocr-tmp");
   await mkdir(ocrTempDir, { recursive: true });
   const worker = noOcr || tesseractPath ? null : await createWorker("por");
-  const paddleWorkers = extractDataOnly && !quickExtraction
-    ? Array.from({ length: extractionConcurrency }, () => createPaddleOcrWorker(paddlePythonPath))
+  const paddleWorkers = (extractDataOnly && !quickExtraction) || extractFullText
+    ? Array.from({ length: extractionConcurrency }, () => createPaddleOcrWorker(paddlePythonPath, extractFullText))
     : [];
   const runIdPath = join(workDir, "run-id.txt");
   let runId;
@@ -1173,17 +1285,24 @@ async function run() {
   }
   const rows = [];
   if (extractFullText) {
-    let completedCount = 0;
+    let completedCount = fullTextRows.filter(row => fullTextCheckpointComplete(JSON.parse(row.payload), forceFullText)).length;
+    await writeFullTextProgress(db, join(workDir, 'full-text-status.json'), fullTextRows.length, completedCount, false);
     for (const row of fullTextRows) {
       try {
-        rows.push(await extractFullTextOne({ db, row, options }));
+        const result = await extractFullTextOne({ db, row, options });
+        if (result.skipped) continue;
+        rows.push(safeSummaryRow(result));
       } catch (error) {
+        if (options.ocr.paddleWorker.disabled) {
+          await writeStageManifest(db, stageManifestPath, runId);
+          await writeFullTextProgress(db, join(workDir, 'full-text-status.json'), fullTextRows.length, completedCount, false);
+          throw error;
+        }
         rows.push(await extractFullTextErrorRecord({ db, row, error }));
       }
       completedCount += 1;
-      if (completedCount % 10 === 0) {
-        await writeFullTextProgress(db, join(workDir, "full-text-status.json"), fullTextRows.length, completedCount, false);
-      }
+      if (completedCount % 5 === 0) await writeFullTextProgress(db, join(workDir, "full-text-status.json"), fullTextRows.length, completedCount, false);
+      if (completedCount % 50 === 0) await writeStageManifest(db, stageManifestPath, runId);
     }
   } else if (extractDataOnly) {
     let completedCount = 0;

@@ -1,0 +1,3 @@
+# CPU inference only. Public weights download once; image processing is local.
+rapidocr==3.9.2
+onnxruntime==1.30.0

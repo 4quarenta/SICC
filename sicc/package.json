@@ -14,7 +14,7 @@
     "supabase:function:serve": "supabase functions serve sicc-api --no-verify-jwt",
     "supabase:function:deploy": "supabase functions deploy sicc-api",
     "test:parser": "node --experimental-strip-types tests/infoseg-parser.test.ts",
-    "test:importador": "node tools/importador-legado/rules.test.mjs"
+    "test:importador": "node tools/importador-legado/rules.test.mjs && node tools/importador-legado/caption-ocr.test.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.55.0",
