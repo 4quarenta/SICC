@@ -76,6 +76,7 @@ const blankAddress = (): Address => ({ label: "Residencial", address: "", city: 
 const BRASILIA_TIME_ZONE = "America/Sao_Paulo";
 
 type AlertImage = { id: number; name: string; type: string; createdAt: string; url: string };
+type AlertVehicle = { brand: string; model: string; color: string; plate: string; year: string };
 type AlertRecord = {
   id: number;
   categoryKey: string;
@@ -92,7 +93,7 @@ type AlertRecord = {
   latitude: string | null;
   longitude: string | null;
   accuracyMeters: number | null;
-  status: "open" | "resolved";
+  status: "open" | "resolved" | "expired";
   createdBy: string;
   createdByName: string;
   createdAt: string;
@@ -101,6 +102,23 @@ type AlertRecord = {
   resolvedAt: string | null;
   images: AlertImage[];
 };
+
+const blankAlertVehicle = (): AlertVehicle => ({ brand: "", model: "", color: "", plate: "", year: "" });
+
+function formatAlertVehicles(vehicles: AlertVehicle[]) {
+  return vehicles
+    .filter((vehicle) => Object.values(vehicle).some((value) => value.trim()))
+    .map((vehicle, index) => {
+      const details = [
+        vehicle.brand || vehicle.model ? `Marca/modelo: ${[vehicle.brand, vehicle.model].filter(Boolean).join(" ")}` : "",
+        vehicle.color ? `Cor: ${vehicle.color}` : "",
+        vehicle.plate ? `Placa: ${vehicle.plate}` : "",
+        vehicle.year ? `Ano: ${vehicle.year}` : "",
+      ].filter(Boolean);
+      return `Veículo ${index + 1}: ${details.join(" · ")}`;
+    })
+    .join("\n");
+}
 
 function brasiliaNowParts() {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -1322,7 +1340,7 @@ function AlertsView({ operator }: { operator: Operator }) {
   const [municipality, setMunicipality] = useState("");
   const [neighborhood, setNeighborhood] = useState("");
   const [peopleInfo, setPeopleInfo] = useState("");
-  const [vehicleInfo, setVehicleInfo] = useState("");
+  const [vehicles, setVehicles] = useState<AlertVehicle[]>([]);
   const [description, setDescription] = useState("");
   const [occurredAt, setOccurredAt] = useState(currentBrasiliaDateTime());
   const [locationLink, setLocationLink] = useState("");
@@ -1339,7 +1357,7 @@ function AlertsView({ operator }: { operator: Operator }) {
       if (appliedCategoryFilter) params.set("category", appliedCategoryFilter);
       if (appliedMunicipalityFilter.trim()) params.set("municipality", appliedMunicipalityFilter.trim());
       if (appliedNeighborhoodFilter.trim()) params.set("neighborhood", appliedNeighborhoodFilter.trim());
-      if (appliedStatusFilter) params.set("status", appliedStatusFilter);
+      params.set("status", appliedStatusFilter || "all");
       const response = await apiFetch(`/api/alerts?${params.toString()}`, { cache: "no-store" });
       const data = await response.json() as { alerts?: AlertRecord[]; error?: string };
       if (!response.ok) throw new Error(data.error ?? "Não foi possível carregar os alertas.");
@@ -1365,7 +1383,7 @@ function AlertsView({ operator }: { operator: Operator }) {
 
   function clearForm() {
     previews.forEach((url) => URL.revokeObjectURL(url));
-    setImages([]); setPreviews([]); setCategoryKey(ALERT_CATEGORIES[0].key); setMunicipalityState(""); setMunicipality(""); setNeighborhood(""); setPeopleInfo(""); setVehicleInfo(""); setDescription(""); setOccurredAt(currentBrasiliaDateTime()); setLocationLink(""); setOpenSections({});
+    setImages([]); setPreviews([]); setCategoryKey(ALERT_CATEGORIES[0].key); setMunicipalityState(""); setMunicipality(""); setNeighborhood(""); setPeopleInfo(""); setVehicles([]); setDescription(""); setOccurredAt(currentBrasiliaDateTime()); setLocationLink(""); setOpenSections({});
   }
 
   function toggleSection(section: string) {
@@ -1381,7 +1399,7 @@ function AlertsView({ operator }: { operator: Operator }) {
       const compacted = await Promise.all(images.map((file) => compressImage(file, targetBytes)));
       if (compacted.reduce((total, file) => total + file.size, 0) > 2_500_000) throw new Error("Mesmo após a compactação, as imagens ultrapassam o limite total. Envie menos fotos.");
       const form = new FormData();
-      form.set("categoryKey", categoryKey); form.set("municipalityState", municipalityState); form.set("municipality", municipality); form.set("neighborhood", neighborhood); form.set("peopleInfo", peopleInfo.trim()); form.set("vehicleInfo", vehicleInfo.trim()); form.set("description", description.trim()); form.set("occurredAt", occurredAt);
+      form.set("categoryKey", categoryKey); form.set("municipalityState", municipalityState); form.set("municipality", municipality); form.set("neighborhood", neighborhood); form.set("peopleInfo", peopleInfo.trim()); form.set("vehicleInfo", formatAlertVehicles(vehicles)); form.set("description", description.trim()); form.set("occurredAt", occurredAt);
       if (locationLink.trim()) form.set("locationLink", locationLink.trim());
       compacted.forEach((file) => form.append("images", file));
       const response = await apiFetch("/api/alerts", { method: "POST", body: form });
@@ -1398,6 +1416,7 @@ function AlertsView({ operator }: { operator: Operator }) {
   }
 
   async function changeStatus(alert: AlertRecord) {
+    if (alert.status === "expired") { setNotice("QTC expirado não pode ser reaberto ou resolvido após o prazo de 5 dias."); return; }
     const next = alert.status === "resolved" ? "open" : "resolved";
     if (next === "resolved") {
       setConfirmation({ title: "Marcar QTC como resolvido?", message: "O QTC ficará identificado como resolvido e registrará o operador responsável.", action: async () => { await changeStatusConfirmed(alert, next); } });
@@ -1444,7 +1463,7 @@ function AlertsView({ operator }: { operator: Operator }) {
       <div className="alerts-toolbar panel">
         <div><b>QTCs operacionais</b><small>Ocorrências compartilhadas entre os operadores autenticados.</small></div>
         <button className="secondary filter-toggle" onClick={() => setFiltersOpen((value) => !value)}>☷ {filtersOpen ? "Fechar filtros" : "Abrir filtros"}{(appliedCategoryFilter || appliedMunicipalityFilter || appliedStatusFilter !== "open") ? " · ativos" : ""}</button>
-        {filtersOpen && <div className="alert-filters"><label>Status<select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="open">Em aberto</option><option value="resolved">Resolvidos</option><option value="">Todos</option></select></label><label>Categoria<select value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)}><option value="">Todas</option>{ALERT_CATEGORIES.map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}</select></label><label className="filter-city">Município<input value={municipalityFilter} onChange={(event) => setMunicipalityFilter(event.target.value)} placeholder="Filtrar cidade" /></label><label className="filter-neighborhood">Bairro<input value={neighborhoodFilter} onChange={(event) => setNeighborhoodFilter(event.target.value)} placeholder="Filtrar bairro" /></label><div className="filter-actions"><button type="button" className="secondary" onClick={() => { setCategoryFilter(""); setMunicipalityFilter(""); setNeighborhoodFilter(""); setStatusFilter("open"); setAppliedCategoryFilter(""); setAppliedMunicipalityFilter(""); setAppliedNeighborhoodFilter(""); setAppliedStatusFilter("open"); setFiltersOpen(false); }}>Limpar</button><button type="button" className="primary" onClick={() => { setAppliedCategoryFilter(categoryFilter); setAppliedMunicipalityFilter(municipalityFilter); setAppliedNeighborhoodFilter(neighborhoodFilter); setAppliedStatusFilter(statusFilter); setFiltersOpen(false); }}>Aplicar filtros</button></div></div>}
+        {filtersOpen && <div className="alert-filters"><label>Status<select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="open">Em aberto</option><option value="resolved">Resolvidos</option><option value="expired">Expirados</option><option value="">Todos</option></select></label><label>Categoria<select value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)}><option value="">Todas</option>{ALERT_CATEGORIES.map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}</select></label><label className="filter-city">Município<input value={municipalityFilter} onChange={(event) => setMunicipalityFilter(event.target.value)} placeholder="Filtrar cidade" /></label><label className="filter-neighborhood">Bairro<input value={neighborhoodFilter} onChange={(event) => setNeighborhoodFilter(event.target.value)} placeholder="Filtrar bairro" /></label><div className="filter-actions"><button type="button" className="secondary" onClick={() => { setCategoryFilter(""); setMunicipalityFilter(""); setNeighborhoodFilter(""); setStatusFilter("open"); setAppliedCategoryFilter(""); setAppliedMunicipalityFilter(""); setAppliedNeighborhoodFilter(""); setAppliedStatusFilter("open"); setFiltersOpen(false); }}>Limpar</button><button type="button" className="primary" onClick={() => { setAppliedCategoryFilter(categoryFilter); setAppliedMunicipalityFilter(municipalityFilter); setAppliedNeighborhoodFilter(neighborhoodFilter); setAppliedStatusFilter(statusFilter); setFiltersOpen(false); }}>Aplicar filtros</button></div></div>}
       </div>
     </>}
 
@@ -1455,7 +1474,7 @@ function AlertsView({ operator }: { operator: Operator }) {
           <div className="alert-form-grid"><label className="wide">Categoria *<select value={categoryKey} onChange={(event) => setCategoryKey(event.target.value)} required>{ALERT_CATEGORIES.map((item) => <option key={item.key} value={item.key}>{item.label} · prioridade {ALERT_PRIORITY_LABEL[item.priority]}</option>)}</select><small className={`priority-chip ${selectedCategory.priority}`}>{ALERT_PRIORITY_LABEL[selectedCategory.priority]} · {selectedCategory.description}</small></label><div className="locality-fields qtc-locality-fields"><LocalityFields value={{ state: municipalityState, city: municipality, neighborhood }} onChange={(next) => { setMunicipalityState(next.state); setMunicipality(next.city); setNeighborhood(next.neighborhood ?? ""); }} includeNeighborhood required /></div><label className="wide">Data e hora da ocorrência *<input type="datetime-local" value={occurredAt} onChange={(event) => setOccurredAt(event.target.value)} required /></label></div>
         </AlertFormSection>
         <AlertFormSection title="Pessoas e veículo" subtitle="Informações vinculadas, quando houver" open={Boolean(openSections.involved)} onToggle={() => toggleSection("involved")}>
-          <div className="alert-form-grid"><label>Pessoas envolvidas<textarea rows={3} value={peopleInfo} onChange={(event) => setPeopleInfo(event.target.value)} placeholder="Nome, alcunha ou descrição, se houver" /></label><label>Veículo<textarea rows={3} value={vehicleInfo} onChange={(event) => setVehicleInfo(event.target.value)} placeholder="Placa, modelo, cor e características" /></label></div>
+          <div className="alert-form-grid"><label>Pessoas envolvidas<textarea rows={3} value={peopleInfo} onChange={(event) => setPeopleInfo(event.target.value)} placeholder="Nome, alcunha ou descrição, se houver" /></label><div className="vehicle-editor"><div className="vehicle-editor-heading"><b>Veículos</b><small>Adicione cada veículo separadamente, quando houver.</small></div>{vehicles.map((vehicle, index) => <div className="vehicle-card" key={`vehicle-${index}`}><div className="vehicle-card-head"><b>Veículo {index + 1}</b><button type="button" className="link-button" onClick={() => setVehicles((current) => current.filter((_, itemIndex) => itemIndex !== index))}>Remover</button></div><div className="vehicle-fields"><label>Marca<input value={vehicle.brand} onChange={(event) => setVehicles((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, brand: event.target.value } : item))} placeholder="Ex.: Fiat" /></label><label>Modelo<input value={vehicle.model} onChange={(event) => setVehicles((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, model: event.target.value } : item))} placeholder="Ex.: Uno" /></label><label>Cor<input value={vehicle.color} onChange={(event) => setVehicles((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, color: event.target.value } : item))} placeholder="Ex.: branco" /></label><label>Placa<input value={vehicle.plate} onChange={(event) => setVehicles((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, plate: event.target.value } : item))} placeholder="ABC1D23" /></label><label>Ano<input inputMode="numeric" value={vehicle.year} onChange={(event) => setVehicles((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, year: event.target.value.replace(/[^0-9]/g, "").slice(0, 4) } : item))} placeholder="2020" /></label></div></div>)}<button type="button" className="add-row" onClick={() => setVehicles((current) => [...current, blankAlertVehicle()])}>＋ Adicionar veículo</button></div></div>
         </AlertFormSection>
         <AlertFormSection title="Descrição da ocorrência" subtitle="Relato objetivo e providências necessárias" open={Boolean(openSections.description)} onToggle={() => toggleSection("description")}>
           <label className="alert-block-label">Descrição da ocorrência *<textarea rows={5} value={description} onChange={(event) => setDescription(event.target.value)} required placeholder="O que aconteceu, quando e quais providências são necessárias?" /></label>
@@ -1471,14 +1490,14 @@ function AlertsView({ operator }: { operator: Operator }) {
     </form>}
 
     {notice && <div className="feedback" role="status">{notice}</div>}
-    {!showCreate && (loading ? <section className="panel alerts-loading"><span className="mini-loader" /> Carregando QTCs…</section> : !alerts.length ? <section className="panel empty-alerts"><span>✓</span><b>{appliedStatusFilter === "resolved" ? "Nenhum QTC resolvido" : "Nenhum QTC em aberto"}</b><small>Os alertas publicados pelos operadores aparecerão aqui.</small></section> : <><div className="alert-groups">{groups.map((group) => <section className="alert-group" key={group.priority}><div className="alert-group-heading"><h2>{ALERT_PRIORITY_LABEL[group.priority]}</h2><span>{group.items.length} QTC{group.items.length === 1 ? "" : "s"}</span></div>{group.items.map((alert) => <article className={`alert-card alert-summary-card ${alert.status}`} key={alert.id} role="button" tabIndex={0} onClick={() => setSelectedAlert(alert)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelectedAlert(alert); } }}><div className="alert-card-head"><div><span className={`priority-chip ${alert.priority}`}>{ALERT_PRIORITY_LABEL[alert.priority]}</span><h3>{alert.categoryLabel}</h3></div></div><p className="alert-summary-description">{alert.description.length > 150 ? `${alert.description.slice(0, 150).trim()}…` : alert.description}</p><div className="alert-summary-meta"><span>Ocorrência: <b>{formatDate(alert.occurredAt)}</b></span><span>{alert.neighborhood ? `${alert.municipality} · ${alert.neighborhood}` : alert.municipality}</span></div></article>)}</section>)}</div><div className="alert-pagination"><button type="button" disabled={alertPage <= 1} onClick={() => setAlertPage((value) => Math.max(1, value - 1))}>Anterior</button><span>Página {Math.min(alertPage, alertPageCount)} de {alertPageCount} · {alerts.length} QTCs</span><button type="button" disabled={alertPage >= alertPageCount} onClick={() => setAlertPage((value) => Math.min(alertPageCount, value + 1))}>Próxima</button></div></>)}
+    {!showCreate && (loading ? <section className="panel alerts-loading"><span className="mini-loader" /> Carregando QTCs…</section> : !alerts.length ? <section className="panel empty-alerts"><span>✓</span><b>{appliedStatusFilter === "resolved" ? "Nenhum QTC resolvido" : appliedStatusFilter === "expired" ? "Nenhum QTC expirado" : "Nenhum QTC em aberto"}</b><small>Os alertas publicados pelos operadores aparecerão aqui.</small></section> : <><div className="alert-groups">{groups.map((group) => <section className="alert-group" key={group.priority}><div className="alert-group-heading"><h2>{ALERT_PRIORITY_LABEL[group.priority]}</h2><span>{group.items.length} QTC{group.items.length === 1 ? "" : "s"}</span></div>{group.items.map((alert) => <article className={`alert-card alert-summary-card ${alert.status}`} key={alert.id} role="button" tabIndex={0} onClick={() => setSelectedAlert(alert)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelectedAlert(alert); } }}><div className="alert-card-head"><div><span className={`priority-chip ${alert.priority}`}>{ALERT_PRIORITY_LABEL[alert.priority]}</span><h3>{alert.categoryLabel}</h3></div></div><p className="alert-summary-description">{alert.description.length > 150 ? `${alert.description.slice(0, 150).trim()}…` : alert.description}</p><div className="alert-summary-meta"><span>Ocorrência: <b>{formatDate(alert.occurredAt)}</b></span><span>{alert.neighborhood ? `${alert.municipality} · ${alert.neighborhood}` : alert.municipality}</span></div></article>)}</section>)}</div><div className="alert-pagination"><button type="button" disabled={alertPage <= 1} onClick={() => setAlertPage((value) => Math.max(1, value - 1))}>Anterior</button><span>Página {Math.min(alertPage, alertPageCount)} de {alertPageCount} · {alerts.length} QTCs</span><button type="button" disabled={alertPage >= alertPageCount} onClick={() => setAlertPage((value) => Math.min(alertPageCount, value + 1))}>Próxima</button></div></>)}
     {!showCreate && <button className="floating-alert" onClick={() => { setShowCreate(true); setNotice(""); }}><NavIcon name="plus" /><span>Novo QTC</span></button>}
   </div>;
 }
 
 function AlertDetailsPage({ alert, saving, canDelete, onBack, onChangeStatus, onDelete }: { alert: AlertRecord; saving: boolean; canDelete: boolean; onBack: () => void; onChangeStatus: () => void; onDelete: () => void }) {
   const [lightbox, setLightbox] = useState<{ src: string; alt: string } | null>(null);
-  return <section className="alert-detail-page"><button type="button" className="alert-back" onClick={onBack}>‹ Voltar para os alertas</button><div className="alert-detail-hero"><div><span className={`priority-chip ${alert.priority}`}>{ALERT_PRIORITY_LABEL[alert.priority]}</span><h2>{alert.categoryLabel}</h2><p>{alert.municipality}{alert.neighborhood ? ` · ${alert.neighborhood}` : ""}</p></div><span className={`alert-status ${alert.status}`}>{alert.status === "resolved" ? "Resolvido" : "Em aberto"}</span></div><div className="alert-detail-sections"><section><h3>Ocorrência</h3><dl><div><dt>Data e hora</dt><dd>{formatDate(alert.occurredAt)}</dd></div><div><dt>Descrição</dt><dd className="preserve-lines">{alert.description}</dd></div></dl></section>{(alert.peopleInfo || alert.vehicleInfo) && <section><h3>Envolvidos</h3><dl>{alert.peopleInfo && <div><dt>Pessoas</dt><dd className="preserve-lines">{alert.peopleInfo}</dd></div>}{alert.vehicleInfo && <div><dt>Veículo</dt><dd className="preserve-lines">{alert.vehicleInfo}</dd></div>}</dl></section>}{alert.locationLink && <section><h3>Localização ou rastreio</h3><a className="alert-detail-link" href={alert.locationLink} target="_blank" rel="noreferrer">↗ Abrir link informado</a></section>}{alert.images.length > 0 && <section><h3>Imagens</h3><div className="alert-detail-images">{alert.images.map((image) => <figure key={image.id}><img src={image.url} alt={image.name} onClick={() => setLightbox({ src: image.url, alt: image.name })} /><figcaption>{image.name}</figcaption></figure>)}</div></section>}<section><h3>Registro</h3><dl><div><dt>Enviado por</dt><dd>{alert.createdByName}</dd></div><div><dt>Data e hora do envio</dt><dd>{formatDate(alert.createdAt)}</dd></div>{alert.status === "resolved" && <div><dt>Resolvido por</dt><dd>{alert.resolvedByName ? `${alert.resolvedByName} · ${formatDate(alert.resolvedAt)}` : "Não informado"}</dd></div>}</dl></section></div><button type="button" className={alert.status === "resolved" ? "secondary alert-detail-action" : "primary alert-detail-action"} disabled={saving} onClick={onChangeStatus}>{alert.status === "resolved" ? "Reabrir QTC" : "Marcar como resolvido"}</button>{canDelete && <button type="button" className="danger-outline alert-delete-action" disabled={saving} onClick={onDelete}>Apagar QTC</button>}{lightbox && <ImageLightbox src={lightbox.src} alt={lightbox.alt} onClose={() => setLightbox(null)} />}</section>;
+  return <section className="alert-detail-page"><button type="button" className="alert-back" onClick={onBack}>‹ Voltar para os alertas</button><div className="alert-detail-hero"><div><span className={`priority-chip ${alert.priority}`}>{ALERT_PRIORITY_LABEL[alert.priority]}</span><h2>{alert.categoryLabel}</h2><p>{alert.municipality}{alert.neighborhood ? ` · ${alert.neighborhood}` : ""}</p></div><span className={`alert-status ${alert.status}`}>{alert.status === "resolved" ? "Resolvido" : alert.status === "expired" ? "Expirado" : "Em aberto"}</span></div><div className="alert-detail-sections"><section><h3>Ocorrência</h3><dl><div><dt>Data e hora</dt><dd>{formatDate(alert.occurredAt)}</dd></div><div><dt>Descrição</dt><dd className="preserve-lines">{alert.description}</dd></div></dl></section>{(alert.peopleInfo || alert.vehicleInfo) && <section><h3>Envolvidos</h3><dl>{alert.peopleInfo && <div><dt>Pessoas</dt><dd className="preserve-lines">{alert.peopleInfo}</dd></div>}{alert.vehicleInfo && <div><dt>Veículo</dt><dd className="preserve-lines">{alert.vehicleInfo}</dd></div>}</dl></section>}{alert.locationLink && <section><h3>Localização ou rastreio</h3><a className="alert-detail-link" href={alert.locationLink} target="_blank" rel="noreferrer">↗ Abrir link informado</a></section>}{alert.images.length > 0 && <section><h3>Imagens</h3><div className="alert-detail-images">{alert.images.map((image) => <figure key={image.id}><img src={image.url} alt={image.name} onClick={() => setLightbox({ src: image.url, alt: image.name })} /><figcaption>{image.name}</figcaption></figure>)}</div></section>}<section><h3>Registro</h3><dl><div><dt>Enviado por</dt><dd>{alert.createdByName}</dd></div><div><dt>Data e hora do envio</dt><dd>{formatDate(alert.createdAt)}</dd></div>{alert.status === "resolved" && <div><dt>Resolvido por</dt><dd>{alert.resolvedByName ? `${alert.resolvedByName} · ${formatDate(alert.resolvedAt)}` : "Não informado"}</dd></div>}</dl></section></div>{alert.status === "expired" ? <p className="alert-expired-note">Este QTC expirou após 5 dias sem resolução.</p> : <button type="button" className={alert.status === "resolved" ? "secondary alert-detail-action" : "primary alert-detail-action"} disabled={saving} onClick={onChangeStatus}>{alert.status === "resolved" ? "Reabrir QTC" : "Marcar como resolvido"}</button>}{canDelete && <button type="button" className="danger-outline alert-delete-action" disabled={saving} onClick={onDelete}>Apagar QTC</button>}{lightbox && <ImageLightbox src={lightbox.src} alt={lightbox.alt} onClose={() => setLightbox(null)} />}</section>;
 }
 
 function ImageLightbox({ src, alt, onClose }: { src: string; alt: string; onClose: () => void }) {

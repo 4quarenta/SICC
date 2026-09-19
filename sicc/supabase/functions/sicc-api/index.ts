@@ -148,6 +148,14 @@ const alertCategories: Record<string, { label: string; priority: "Baixa" | "Méd
   "atitude-suspeita": { label: "Atitude Suspeita", priority: "Média" },
 };
 
+const ALERT_EXPIRY_MS = 5 * 24 * 60 * 60 * 1000;
+
+function alertExpired(row: Record<string, unknown>) {
+  if (row.status !== "open") return false;
+  const createdAt = Date.parse(String(row.created_at ?? ""));
+  return Number.isFinite(createdAt) && Date.now() - createdAt >= ALERT_EXPIRY_MS;
+}
+
 function alertPayload(row: Record<string, unknown>, images: Array<Record<string, unknown>> = []) {
   const priority = String(row.priority ?? "Média").toLowerCase().replace("média", "media") as "baixa" | "media" | "alta" | "extrema";
   return {
@@ -166,7 +174,7 @@ function alertPayload(row: Record<string, unknown>, images: Array<Record<string,
     latitude: row.latitude ?? null,
     longitude: row.longitude ?? null,
     accuracyMeters: row.accuracy_meters ?? null,
-    status: row.status,
+    status: alertExpired(row) ? "expired" : row.status,
     createdBy: row.created_by,
     createdByName: row.created_by_name,
     createdAt: row.created_at,
@@ -739,7 +747,11 @@ async function handleData(path: string, req: Request) {
     if (params.get("category")) query = query.eq("category_key", params.get("category"));
     if (params.get("municipality")) query = query.ilike("municipality", `%${params.get("municipality")}%`);
     if (params.get("neighborhood")) query = query.ilike("neighborhood", `%${params.get("neighborhood")}%`);
-    if (params.get("status")) query = query.eq("status", params.get("status"));
+    const requestedStatus = params.get("status") ?? "open";
+    const expiryCutoff = new Date(Date.now() - ALERT_EXPIRY_MS).toISOString();
+    if (requestedStatus === "open") query = query.eq("status", "open").gt("created_at", expiryCutoff);
+    else if (requestedStatus === "expired") query = query.eq("status", "open").lte("created_at", expiryCutoff);
+    else if (requestedStatus === "resolved") query = query.eq("status", "resolved");
     const { data, error } = await query;
     return error ? fail(error.message, 500) : json({ alerts: await alertRows((data ?? []) as Array<Record<string, unknown>>) });
   }
@@ -763,7 +775,12 @@ async function handleData(path: string, req: Request) {
   }
   const alertMatch = path.match(/^\/alerts\/(\d+)$/);
   if (alertMatch && req.method === "PATCH") {
+    const alertId = Number(alertMatch[1]);
+    const { data: currentAlert, error: currentError } = await api.from("qtc_alerts").select("status,created_at").eq("id", alertId).maybeSingle();
+    if (currentError) return fail(currentError.message, 500);
+    if (!currentAlert) return fail("QTC n\u00e3o encontrado.", 404);
     const body = await bodyJson(req); const resolved = body.status === "resolved";
+    if (alertExpired(currentAlert as Record<string, unknown>)) return fail("O prazo de 5 dias para resolver este QTC expirou.", 409);
     const { error } = await api.from("qtc_alerts").update(resolved ? { status: "resolved", resolved_by: user.id, resolved_by_name: current.war_name, resolved_at: new Date().toISOString() } : { status: "open", resolved_by: null, resolved_by_name: null, resolved_at: null }).eq("id", Number(alertMatch[1]));
     return error ? fail(error.message, 400) : json({ ok: true });
   }
