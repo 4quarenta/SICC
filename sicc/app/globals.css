@@ -23,6 +23,9 @@
 .existing-media figcaption{padding:6px;font-size:10px;font-weight:750}
 .compact-photos .photo-input{min-height:105px}
 .edit-actions{position:sticky;bottom:-25px;background:white;border-top:1px solid var(--line);padding:14px 0 2px;z-index:2}
+.edit-sheet input,.edit-sheet select,.edit-sheet textarea,.faction-fields input,.faction-fields select{width:100%;min-height:48px;border:1px solid #bdced1;border-radius:9px;background:#fff;color:var(--ink);padding:12px;font:inherit}
+.edit-sheet textarea{resize:vertical}
+.edit-sheet .locality-fields input,.edit-sheet .locality-fields select{min-height:48px}
 
 @media(max-width:800px){
   .sheet-actions{display:grid;grid-template-columns:1fr 1fr}

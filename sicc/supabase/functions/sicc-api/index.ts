@@ -305,12 +305,14 @@ async function peopleRows(ids?: number[]) {
   ]);
   if (addresses.error || approaches.error || seized.error || media.error || factions.error) throw addresses.error ?? approaches.error ?? seized.error ?? media.error ?? factions.error;
   const factionMap = new Map((factions.data ?? []).map((row) => [row.id as number, row.name as string]));
-  const mediaWithUrls = await Promise.all((media.data ?? []).map(async (row) => ({
+  const uniqueMediaRows = [...new Map((media.data ?? []).map((row) => [`${row.person_id}:${String(row.sha256 ?? row.object_key ?? row.id)}`, row])).values()];
+  const mediaWithUrls = await Promise.all(uniqueMediaRows.map(async (row) => ({
     id: row.id,
     kind: row.kind,
     originalName: row.original_name,
     description: row.description,
     capturedAt: row.captured_at,
+    sha256: row.sha256 ?? null,
     url: await signedUrl(row.object_key),
   })));
   return rows.map((row) => ({
@@ -334,7 +336,7 @@ async function peopleRows(ids?: number[]) {
     approaches: (approaches.data ?? []).filter((item) => item.person_id === row.id).map((item) => ({ id: item.id, occurredAt: item.occurred_at ?? null, latitude: item.latitude == null ? null : String(item.latitude), longitude: item.longitude == null ? null : String(item.longitude), accuracyMeters: item.accuracy_meters, locationLabel: item.location_label, notes: item.notes })),
     approachCount: (approaches.data ?? []).filter((item) => item.person_id === row.id).length,
     seizedObjects: (seized.data ?? []).filter((item) => item.person_id === row.id).map((item) => ({ id: item.id, description: item.description, quantity: item.quantity, seizedAt: item.seized_at ?? "", location: item.location ?? "", notes: item.notes ?? "" })),
-    media: mediaWithUrls.filter((item) => (media.data ?? []).find((source) => source.id === item.id)?.person_id === row.id),
+    media: mediaWithUrls.filter((item) => uniqueMediaRows.find((source) => source.id === item.id)?.person_id === row.id),
   }));
 }
 
@@ -535,15 +537,16 @@ async function handleData(path: string, req: Request) {
     if (Number.isFinite(id) && id > 0) ids = [id];
     else if (q) {
       const cpfQuery = q.replace(/\D/g, "");
-      const [name, nickname, mother, cpf] = await Promise.all([
+      const [name, nickname, mother, tattoo, cpf] = await Promise.all([
         api.from("people").select("id").ilike("full_name", `%${q}%`).limit(100),
         api.from("people").select("id").ilike("nickname", `%${q}%`).limit(100),
         api.from("people").select("id").ilike("mother_name", `%${q}%`).limit(100),
+        api.from("people").select("id").ilike("tattoo_description", `%${q}%`).limit(100),
         api.from("people").select("id").eq("cpf", cpfQuery || q),
       ]);
-      if (name.error || nickname.error || mother.error || cpf.error) return fail("Não foi possível consultar os cadastros.", 500);
-      ids = [...new Set([...(name.data ?? []), ...(nickname.data ?? []), ...(mother.data ?? []), ...(cpf.data ?? [])].map((row) => row.id as number))];
-      truncated = [name.data,nickname.data,mother.data].some((rows) => (rows ?? []).length >= 100) || ids.length > 100;
+      if (name.error || nickname.error || mother.error || tattoo.error || cpf.error) return fail("Não foi possível consultar os cadastros.", 500);
+      ids = [...new Set([...(name.data ?? []), ...(nickname.data ?? []), ...(mother.data ?? []), ...(tattoo.data ?? []), ...(cpf.data ?? [])].map((row) => row.id as number))];
+      truncated = [name.data,nickname.data,mother.data,tattoo.data].some((rows) => (rows ?? []).length >= 100) || ids.length > 100;
       ids = ids.slice(0, 100);
     }
     const people = await peopleRows(ids);
@@ -599,9 +602,22 @@ async function handleData(path: string, req: Request) {
   }
   const personMatch = path.match(/^\/people\/(\d+)(?:\/approaches)?$/);
   if (personMatch && path.endsWith("/approaches") && req.method === "POST") {
-    const body = await bodyJson(req);
-    const { error } = await api.from("approaches").insert({ person_id: Number(personMatch[1]), occurred_at: String(body.occurredAt ?? new Date().toISOString()), latitude: Number(body.latitude), longitude: Number(body.longitude), accuracy_meters: Number(body.accuracyMeters) || null, location_label: clean(String(body.locationLabel ?? "")) || null, notes: clean(String(body.notes ?? "")) || null, operator_id: user.id, operator_email: user.email ?? "" });
-    return error ? fail(error.message, 400) : json({ ok: true });
+    const form = await req.formData();
+    const personId = Number(personMatch[1]);
+    const latitude = Number(clean(form.get("latitude")));
+    const longitude = Number(clean(form.get("longitude")));
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return fail("A localização atual é obrigatória para registrar a abordagem.", 400);
+    const { data: approach, error } = await api.from("approaches").insert({ person_id: personId, occurred_at: clean(form.get("occurredAt")) || new Date().toISOString(), latitude, longitude, accuracy_meters: Number(clean(form.get("accuracyMeters"))) || null, location_label: clean(form.get("locationLabel")) || null, notes: clean(form.get("notes")) || null, operator_id: user.id, operator_email: user.email ?? "" }).select("id").single();
+    if (error || !approach) return fail(error?.message ?? "Não foi possível registrar a abordagem.", 400);
+    const photo = form.get("approachPhoto");
+    if (photo instanceof File && photo.size > 0) {
+      const objectKey = `${user.id}/${personId}/approach-${crypto.randomUUID()}-${photo.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
+      const upload = await api.storage.from(bucket).upload(objectKey, photo, { contentType: photo.type || "image/jpeg", upsert: false });
+      if (upload.error) return fail(`Abordagem registrada, mas a foto não pôde ser armazenada: ${upload.error.message}`, 400);
+      const mediaInsert = await api.from("person_media").insert({ person_id: personId, kind: "face", object_key: objectKey, original_name: photo.name, content_type: photo.type || "image/jpeg", byte_size: photo.size, sha256: await sha256Bytes(await photo.arrayBuffer()), captured_at: clean(form.get("photoDate")) || clean(form.get("occurredAt")) || null, description: "Foto atualizada na abordagem" });
+      if (mediaInsert.error) return fail(`Abordagem registrada, mas a foto não pôde ser vinculada: ${mediaInsert.error.message}`, 400);
+    }
+    return json({ ok: true, approachId: approach.id });
   }
   if (personMatch && req.method === "DELETE") {
     const { data: media } = await api.from("person_media").select("object_key").eq("person_id", Number(personMatch[1]));

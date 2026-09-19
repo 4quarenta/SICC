@@ -16,7 +16,7 @@ type Address = { id?: number; label: string; address: string; city: string; stat
 type Faction = { id: number; name: string };
 type SeizedObject = { id?: number; description: string; quantity?: number; seizedAt: string; location?: string; notes?: string };
 type Approach = { id: number; occurredAt: string | null; latitude: string | null; longitude: string | null; accuracyMeters: number | null; locationLabel: string | null; notes: string | null };
-type Media = { id: number; kind: "face" | "face_front" | "face_profile" | "tattoo" | "legacy"; originalName: string; description: string | null; capturedAt: string | null; url: string };
+type Media = { id: number; kind: "face" | "face_front" | "face_profile" | "tattoo" | "legacy"; originalName: string; description: string | null; capturedAt: string | null; url: string; sha256?: string | null };
 type Person = {
   id: number;
   fullName: string | null;
@@ -953,32 +953,37 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
       return;
     }
     setLoading(true);
-    const form = new FormData(event.currentTarget);
-    const response = await apiFetch(`/api/people/${approachPerson.id}/approaches`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        occurredAt: form.get("occurredAt"),
-        locationLabel: form.get("locationLabel"),
-        notes: form.get("notes"),
-        ...approachLocation,
-      }),
-    });
-    const data = (await response.json()) as { error?: string };
-    if (!response.ok) {
+    try {
+      const form = new FormData(event.currentTarget);
+      const photo = form.get("approachPhoto");
+      form.delete("approachPhoto");
+      if (photo instanceof File && photo.size > 0) {
+        form.set("approachPhoto", await compressImage(photo, 240_000));
+      }
+      form.set("latitude", approachLocation.latitude);
+      form.set("longitude", approachLocation.longitude);
+      form.set("accuracyMeters", approachLocation.accuracyMeters);
+      const response = await apiFetch(`/api/people/${approachPerson.id}/approaches`, { method: "POST", body: form });
+      let data: { error?: string } = {};
+      try { data = await response.json() as { error?: string }; } catch { /* resposta não JSON */ }
+      if (!response.ok) {
+        setMessage(data.error ?? "Não foi possível registrar a abordagem.");
+        return;
+      }
+      const refreshed = await apiFetch(`/api/people?id=${approachPerson.id}`, { cache: "no-store" });
+      const refreshedData = await refreshed.json() as { people?: Person[] };
+      const person = refreshedData.people?.[0];
+      if (!person) throw new Error("A abordagem foi salva, mas a ficha não pôde ser atualizada.");
+      setSelected(person);
+      setResults((items) => items.map((item) => item.id === person.id ? person : item));
+      setApproachPerson(null);
+      setApproachLocation(null);
+      setMessage("Abordagem, localização e foto registradas na trilha de auditoria.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Não foi possível registrar a abordagem.");
+    } finally {
       setLoading(false);
-      setMessage(data.error ?? "Não foi possível registrar a abordagem.");
-      return;
     }
-    const refreshed = await apiFetch(`/api/people?id=${approachPerson.id}`);
-    const refreshedData = (await refreshed.json()) as { people: Person[] };
-    const person = refreshedData.people[0];
-    setSelected(person);
-    setResults((items) => items.map((item) => item.id === person.id ? person : item));
-    setApproachPerson(null);
-    setApproachLocation(null);
-    setLoading(false);
-    setMessage("Abordagem e localização registradas na trilha de auditoria.");
   }
 
   function personUpdated(person: Person) {
@@ -1056,7 +1061,7 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
         {view === "search" && (
           <section className="search-card">
             <div className="search-tabs" role="tablist" aria-label="Tipo de consulta">
-              <button className={searchMode === "text" ? "active" : ""} onClick={() => setSearchMode("text")}>⌨ Nome/alcunha</button>
+              <button className={searchMode === "text" ? "active" : ""} onClick={() => setSearchMode("text")}>⌨ Nome, alcunha ou tatuagem</button>
               {IMAGE_SEARCH_ENABLED && <button className={searchMode === "face" ? "active" : ""} onClick={() => setSearchMode("face")}>◎ Rosto</button>}
               {IMAGE_SEARCH_ENABLED && <button className={searchMode === "tattoo" ? "active" : ""} onClick={() => setSearchMode("tattoo")}>◇ Tatuagem</button>}
             </div>
@@ -1255,6 +1260,7 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
             <label>Data e hora<input name="occurredAt" type="datetime-local" defaultValue={currentBrasiliaDateTime()} /></label>
             <label>Referência do local<input name="locationLabel" placeholder="Rua, bairro ou ponto de referência" /></label>
             <label>Observação<textarea name="notes" rows={3} placeholder="Circunstâncias objetivas da abordagem" /></label>
+            <PhotoInput name="approachPhoto" label="Adicionar foto atualizada" />
             <button type="button" className={approachLocation ? "location-ok" : "secondary"} onClick={() => captureLocation(setApproachLocation)}>{approachLocation ? "✓ Localização capturada" : "⌖ Capturar localização atual"}</button>
             {approachLocation && <small>Precisão aproximada: {approachLocation.accuracyMeters} m.</small>}
             <button className="primary full-button" disabled={loading}>{loading ? "Registrando…" : "Registrar abordagem"}</button>
@@ -1558,10 +1564,21 @@ function AdminList({ kind }: { kind: "operators" | "records" }) {
   </section>;
 }
 
+function uniqueMedia(items: Media[] | undefined) {
+  const seen = new Set<string>();
+  return (items ?? []).filter((item) => {
+    const key = item.sha256 || item.url || `${item.kind}:${item.originalName}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 function PersonList({ people, onSelect }: { people: Person[]; onSelect: (person: Person) => void }) {
   if (!people.length) return <div className="empty"><i>⌕</i><b>Nenhum registro para exibir</b><span>Faça uma consulta ou inclua um novo cadastro.</span></div>;
   return <div className="person-list">{people.map((person) => {
-    const face = person.media?.find((item) => item.kind === "face" || item.kind === "face_front" || item.kind === "face_profile");
+    const media = uniqueMedia(person.media);
+    const face = media.find((item) => item.url && (item.kind === "face" || item.kind === "face_front" || item.kind === "face_profile")) ?? media.find((item) => item.url);
     return <button key={person.id} onClick={() => onSelect(person)}>
       {face ? <img className="list-photo" src={face.url} alt="" /> : <span className="list-avatar">{initials(person.fullName)}</span>}
       <span className="person-name"><b>{person.fullName || "Nome não identificado"}</b><small>{person.nickname ? `“${person.nickname}” · ` : ""}{maskCpf(person.cpf)}</small><em>{formatDate(person.birthDate)}</em><em>{person.motherName || "Mãe não informada"}</em><span className="person-alerts">{person.factionName && <strong className="person-alert faction-alert">⚠ Faccionado: {person.factionName}</strong>}{person.seizedObjects?.length > 0 && <strong className="person-alert object-alert">⚠ Possui objeto apreendido</strong>}{person.notes?.trim() && <strong className="person-alert observation-alert">⚠ Possui observação</strong>}</span></span>
@@ -1571,7 +1588,8 @@ function PersonList({ people, onSelect }: { people: Person[]; onSelect: (person:
 }
 
 function PersonModal({ person, onClose, onApproach, onEdit, onDelete }: { person: Person; onClose: () => void; onApproach: (person: Person) => void; onEdit: (person: Person) => void; onDelete: (person: Person) => void }) {
-  const face = person.media?.find((item) => item.kind === "face" || item.kind === "face_front" || item.kind === "face_profile");
+  const media = uniqueMedia(person.media);
+  const face = media.find((item) => item.url && (item.kind === "face" || item.kind === "face_front" || item.kind === "face_profile")) ?? media.find((item) => item.url);
   const [lightbox, setLightbox] = useState<{ src: string; alt: string } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   return (
@@ -1596,8 +1614,8 @@ function PersonModal({ person, onClose, onApproach, onEdit, onDelete }: { person
           <div><dt>Custódia</dt><dd>{custodyStatusLabel[person.custodyStatus ?? "free"]}</dd></div>
         </dl>
 
-        {person.media?.length > 0 && <SheetSection title="Imagens de identificação" count={person.media.length}>
-          <div className="media-gallery">{person.media.map((item) => <figure key={item.id}><img src={item.url} alt={mediaLabel[item.kind]} onClick={() => setLightbox({ src: item.url, alt: mediaLabel[item.kind] })} /><figcaption>{mediaLabel[item.kind]}<small>{item.capturedAt ? formatDate(item.capturedAt) : "Data não informada"}</small></figcaption></figure>)}</div>
+        {media.length > 0 && <SheetSection title="Imagens de identificação" count={media.length}>
+          <div className="media-gallery">{media.filter((item) => item.url).map((item) => <figure key={item.id}><img src={item.url} alt={mediaLabel[item.kind]} onClick={() => setLightbox({ src: item.url, alt: mediaLabel[item.kind] })} /><figcaption>{mediaLabel[item.kind]}<small>{item.capturedAt ? formatDate(item.capturedAt) : "Data não informada"}</small></figcaption></figure>)}</div>
         </SheetSection>}
 
         <SheetSection title="Endereços" count={person.addresses?.length || 0}>
@@ -1647,7 +1665,7 @@ function EditPersonModal({
   const [editNewFactionName, setEditNewFactionName] = useState("");
   const [editFormCity, setEditFormCity] = useState(person.city ?? "");
   const [editFormState, setEditFormState] = useState(person.state ?? "");
-  const [mediaItems, setMediaItems] = useState<Media[]>(person.media ?? []);
+  const [mediaItems, setMediaItems] = useState<Media[]>(uniqueMedia(person.media));
   const [removedMediaIds, setRemovedMediaIds] = useState<number[]>([]);
   const [mediaToRemove, setMediaToRemove] = useState<Media | null>(null);
   const [editNotice, setEditNotice] = useState("");
@@ -1658,7 +1676,6 @@ function EditPersonModal({
     if (editSubmittingRef.current) return;
     editSubmittingRef.current = true;
     onLoading(true);
-    onMessage("");
     setEditNotice("");
     try {
       const form = new FormData(event.currentTarget);
@@ -1697,14 +1714,12 @@ function EditPersonModal({
       if (!response.ok || !data.person) {
         const errorMessage = data.error ?? "Não foi possível atualizar o cadastro.";
         setEditNotice(errorMessage);
-        onMessage(errorMessage);
         return;
       }
       onUpdated(data.person);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Não foi possível atualizar o cadastro.";
       setEditNotice(errorMessage);
-      onMessage(errorMessage);
     } finally {
       editSubmittingRef.current = false;
       onLoading(false);
