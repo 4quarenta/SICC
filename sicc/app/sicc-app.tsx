@@ -1550,7 +1550,7 @@ function AdminList({ kind }: { kind: "operators" | "records" }) {
       const displayName = kind === "operators"
         ? [rankLabel(row.rank), row.warName || row.name].filter((value) => Boolean(value && value.trim())).join(" ") || "Nome não informado"
         : row.name || "Nome não informado";
-      const createdBy = row.createdByName || row.createdBy || "não informado";
+      const createdBy = row.createdByName || row.createdBy || "Arquivos";
       return <article key={row.id}><div><b>{displayName}</b><small>{kind === "operators" ? `${row.role === "admin" ? "Administrador" : "Operador"}${row.email ? ` · ${row.email}` : ""}${row.invitedBy ? ` · convidado por ${row.invitedBy}` : ""}` : `${maskCpf(row.cpf ?? "")} · cadastrado por ${createdBy}`}</small></div>{!(kind === "operators" && row.role === "admin") && <button onClick={() => setConfirmRow(row)}>Apagar</button>}</article>;
     })}</div>}
     <div className="pagination"><button disabled={page <= 1} onClick={() => setPage((value) => value - 1)}>Anterior</button><span>{page} de {pages}</span><button disabled={page >= pages} onClick={() => setPage((value) => value + 1)}>Próxima</button></div>
