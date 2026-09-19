@@ -1808,6 +1808,7 @@ function EditPersonModal({
             <div className="photo-record"><PhotoInput name="tattoos" label="Adicionar tatuagens" multiple /><label>Data das fotos<input name="tattooPhotoDate" type="date" defaultValue={currentBrasiliaDate()} /></label></div>
           </div>
           <label className="wide">Descrição de tatuagens<textarea name="tattooDescription" rows={3} defaultValue={person.tattooDescription ?? ""} placeholder="Descreva tatuagens conhecidas" /></label>
+          <label className="wide">Descrição de tatuagens<textarea name="tattooDescription" rows={3} defaultValue={person.tattooDescription ?? ""} placeholder="Descreva tatuagens conhecidas" /></label>
         </FormSection>
 
         <FormSection title="Endereços" subtitle="Adicione, corrija ou remova vínculos">
