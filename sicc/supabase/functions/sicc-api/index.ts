@@ -643,9 +643,11 @@ async function handleData(path: string, req: Request) {
     const form = await req.formData();
     const personId = Number(personMatch[1]);
     const cpf = clean(form.get("cpf")).replace(/\D/g, "");
+    const fullName = clean(form.get("fullName"));
     const { data: existingPerson, error: personError } = await api.from("people").select("legacy_source_record_id").eq("id", personId).single();
     if (personError) return fail("Cadastro não encontrado.", 404);
     if ((cpf && cpf.length !== 11) || (!cpf && !existingPerson?.legacy_source_record_id)) return fail("Informe um CPF válido com 11 dígitos.", 400);
+    if (!fullName && !(existingPerson?.legacy_source_record_id && cpf)) return fail("Informe um nome completo.", 400);
     if (cpf) {
       const { data: existingCpf, error: cpfError } = await api.from("people").select("id,full_name").eq("cpf", cpf).neq("id", personId).maybeSingle();
       if (cpfError) return fail("Não foi possível validar o CPF.", 500);
@@ -655,7 +657,7 @@ async function handleData(path: string, req: Request) {
     if (faction.error) return fail(faction.error, 400);
 
     const { error: updateError } = await api.from("people").update({
-      full_name: clean(form.get("fullName")),
+      full_name: fullName || null,
       nickname: clean(form.get("nickname")) || null,
       cpf: cpf || null,
       birth_date: clean(form.get("birthDate")) || null,

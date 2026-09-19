@@ -3,6 +3,7 @@
 begin;
 
 alter table public.people alter column cpf drop not null;
+alter table public.people alter column full_name drop not null;
 alter table public.people alter column created_by drop not null;
 alter table public.people add column if not exists legacy_source_record_id text;
 alter table public.people add column if not exists legacy_parent_record_id text;
@@ -13,8 +14,10 @@ create unique index if not exists people_legacy_source_record_id_uq
 
 alter table public.people drop constraint if exists people_legacy_identity_check;
 alter table public.people add constraint people_legacy_identity_check check (
-  legacy_source_record_id is null or (
-    nullif(btrim(full_name), '') is not null
+  (legacy_source_record_id is null and nullif(btrim(full_name), '') is not null) or (
+    legacy_source_record_id is not null
+    and
+    (nullif(btrim(full_name), '') is not null or cpf ~ '^[0-9]{11}$')
     and legacy_import_manifest_sha256 ~ '^[a-f0-9]{64}$'
   )
 );

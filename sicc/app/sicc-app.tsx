@@ -21,7 +21,7 @@ type LegacyDocument = { sourceRecordId: string; associationScope: "individual_so
 type LegacySource = { recordId: string; sourceOrder: number; recordType: "individual" | "shared_image"; originalName: string | null; displayName: string | null; sourcePersonCount: number; imageUrl: string | null };
 type Person = {
   id: number;
-  fullName: string;
+  fullName: string | null;
   nickname: string | null;
   cpf: string | null;
   legacySourceRecordId: string | null;
@@ -261,8 +261,8 @@ async function safeVisualSignature(file: File) {
 const blankObject = (): SeizedObject => ({ description: "", seizedAt: currentBrasiliaDate() });
 const blankRegisterDraft = () => ({ fullName: "", nickname: "", cpf: "", birthDate: "", motherName: "", tattooDescription: "", city: "", state: "PB", notes: "" });
 
-function initials(name: string) {
-  return name.split(" ").filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toUpperCase();
+function initials(name: string | null | undefined) {
+  return (name ?? "").split(" ").filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toUpperCase() || "?";
 }
 
 function rankLabel(rank: string | null | undefined) { const value = (rank ?? "").trim(); const normalized = value.toLowerCase(); const map: Record<string,string> = {"aluno soldado":"AL SD","soldado":"SD","cabo":"CB","3º sargento":"3º SGT","3o sargento":"3º SGT","2º sargento":"2º SGT","2o sargento":"2º SGT","1º sargento":"1º SGT","1o sargento":"1º SGT","subtenente":"ST","cadete":"CAD","aspirante a oficial":"ASP OF","2º tenente":"2º TEN","1º tenente":"1º TEN","capitão":"CAP","major":"MAJ","tenente-coronel":"TEN CEL","coronel":"CEL"}; return map[normalized] ?? value; }
@@ -1613,7 +1613,7 @@ function PersonList({ people, onSelect }: { people: Person[]; onSelect: (person:
     const face = person.media?.find((item) => item.kind === "face" || item.kind === "face_front" || item.kind === "face_profile");
     return <button key={person.id} onClick={() => onSelect(person)}>
       {face ? <img className="list-photo" src={face.url} alt="" /> : <span className="list-avatar">{initials(person.fullName)}</span>}
-      <span className="person-name"><b>{person.fullName}</b><small>{person.nickname ? `“${person.nickname}” · ` : ""}{maskCpf(person.cpf)}</small><em>{formatDate(person.birthDate)}</em><em>{person.motherName || "Mãe não informada"}</em><span className="person-alerts">{person.factionName && <strong className="person-alert faction-alert">⚠ Faccionado: {person.factionName}</strong>}{person.seizedObjects?.length > 0 && <strong className="person-alert object-alert">⚠ Possui objeto apreendido</strong>}{person.notes?.trim() && <strong className="person-alert observation-alert">⚠ Possui observação</strong>}</span></span>
+      <span className="person-name"><b>{person.fullName || "Nome não identificado"}</b><small>{person.nickname ? `“${person.nickname}” · ` : ""}{maskCpf(person.cpf)}</small><em>{formatDate(person.birthDate)}</em><em>{person.motherName || "Mãe não informada"}</em><span className="person-alerts">{person.factionName && <strong className="person-alert faction-alert">⚠ Faccionado: {person.factionName}</strong>}{person.seizedObjects?.length > 0 && <strong className="person-alert object-alert">⚠ Possui objeto apreendido</strong>}{person.notes?.trim() && <strong className="person-alert observation-alert">⚠ Possui observação</strong>}</span></span>
       <span className={`badge ${person.status}`}>{statusLabel[person.status]}</span><span className="arrow">›</span>
     </button>;
   })}</div>;
@@ -1628,8 +1628,8 @@ function PersonModal({ person, onClose, onApproach, onEdit, onDelete }: { person
       <section className="person-modal person-sheet" role="dialog" aria-modal="true" aria-labelledby="person-title" onClick={(event) => event.stopPropagation()}>
         <button className="close" onClick={onClose} aria-label="Fechar">×</button>
         <div className="person-hero">
-          {face ? <img src={face.url} alt={`Foto frontal de ${person.fullName}`} className="zoomable-image" onClick={() => setLightbox({ src: face.url, alt: `Foto frontal de ${person.fullName}` })} /> : <span>{initials(person.fullName)}</span>}
-          <div><small>CADASTRO Nº {person.id}</small><h2 id="person-title">{person.fullName}</h2>{person.nickname && <p>Alcunha: <b>{person.nickname}</b></p>}<b className={`badge ${person.status}`}>{statusLabel[person.status]}</b></div>
+          {face ? <img src={face.url} alt={person.fullName ? `Foto frontal de ${person.fullName}` : "Imagem do registro"} className="zoomable-image" onClick={() => setLightbox({ src: face.url, alt: person.fullName ? `Foto frontal de ${person.fullName}` : "Imagem do registro" })} /> : <span>{initials(person.fullName)}</span>}
+          <div><small>CADASTRO Nº {person.id}</small><h2 id="person-title">{person.fullName || "Nome não identificado"}</h2>{person.nickname && <p>Alcunha: <b>{person.nickname}</b></p>}<b className={`badge ${person.status}`}>{statusLabel[person.status]}</b></div>
         </div>
         <div className="sheet-actions">
           <button className="secondary" onClick={() => onEdit(person)}>✎ Editar ficha</button>
@@ -1670,7 +1670,7 @@ function PersonModal({ person, onClose, onApproach, onEdit, onDelete }: { person
 
         {person.notes && <div className="note"><b>Observação operacional</b><p>{person.notes}</p></div>}
         <p className="audit-line">▣ Visualização registrada na trilha de auditoria.</p>
-      </section>{lightbox && <ImageLightbox src={lightbox.src} alt={lightbox.alt} onClose={() => setLightbox(null)} />}{confirmDelete && <ConfirmModal title="Apagar cadastro?" message={`O cadastro de ${person.fullName} e suas imagens serão removidos permanentemente.`} confirmLabel="Apagar cadastro" onCancel={() => setConfirmDelete(false)} onConfirm={() => onDelete(person)} />}
+      </section>{lightbox && <ImageLightbox src={lightbox.src} alt={lightbox.alt} onClose={() => setLightbox(null)} />}{confirmDelete && <ConfirmModal title="Apagar cadastro?" message="Este cadastro e suas imagens vinculadas serão removidos permanentemente." confirmLabel="Apagar cadastro" onCancel={() => setConfirmDelete(false)} onConfirm={() => onDelete(person)} />}
     </div>
   );
 }
@@ -1722,8 +1722,9 @@ function EditPersonModal({
       form.set("state", editFormState);
       const fullName = String(form.get("fullName") ?? "").trim();
       const cpfDigits = String(form.get("cpf") ?? "").replace(/\D/g, "");
-      if (fullName.length < 3) throw new Error("Informe o nome completo.");
-      if (cpfDigits.length !== 11) throw new Error("Informe um CPF válido com 11 dígitos.");
+      if (fullName && fullName.length < 3) throw new Error("Informe o nome completo.");
+      if (!fullName && !(person.legacySourceRecordId && cpfDigits.length === 11)) throw new Error("Informe o nome completo ou um CPF válido do acervo.");
+      if ((cpfDigits && cpfDigits.length !== 11) || (!cpfDigits && !person.legacySourceRecordId)) throw new Error("Informe um CPF válido com 11 dígitos.");
       if (editFactionAffiliated && !editFactionChoice) throw new Error("Selecione uma facção ou escolha adicionar uma nova.");
       if (editFactionAffiliated && editFactionChoice === "new" && editNewFactionName.trim().length < 2) throw new Error("Informe o nome da nova facção.");
       const editFaceFiles = form.getAll("facePhotos").filter((item): item is File => item instanceof File && item.size > 0);
@@ -1776,7 +1777,7 @@ function EditPersonModal({
 
         <FormSection title="Identificação" subtitle="Dados civis e operacionais">
           <div className="form-grid">
-            <label className="wide">Nome completo *<input name="fullName" required minLength={3} defaultValue={person.fullName} /></label>
+            <label className="wide">Nome completo{person.legacySourceRecordId && person.cpf ? "" : " *"}<input name="fullName" required={!person.legacySourceRecordId || !person.cpf} minLength={3} defaultValue={person.fullName ?? ""} /></label>
             <label>CPF{person.legacySourceRecordId ? "" : " *"}<input name="cpf" required={!person.legacySourceRecordId} inputMode="numeric" defaultValue={person.cpf ? maskCpf(person.cpf) : ""} /></label>
             <label>Alcunha<input name="nickname" defaultValue={person.nickname ?? ""} /></label>
             <label>Data de nascimento<input name="birthDate" type="date" defaultValue={person.birthDate ?? ""} /></label>
