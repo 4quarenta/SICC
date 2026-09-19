@@ -296,21 +296,14 @@ async function peopleRows(ids?: number[]) {
   const rows = data ?? [];
   const personIds = rows.map((row) => row.id as number);
   if (!personIds.length) return [];
-  const [addresses, approaches, seized, media, factions, legacyLinks] = await Promise.all([
+  const [addresses, approaches, seized, media, factions] = await Promise.all([
     api.from("addresses").select("*").in("person_id", personIds),
     api.from("approaches").select("*").in("person_id", personIds).order("occurred_at", { ascending: false }),
     api.from("seized_objects").select("*").in("person_id", personIds),
     api.from("person_media").select("*").in("person_id", personIds),
     api.from("factions").select("id,name"),
-    api.from("legacy_source_person_links").select("person_id,source_record_id,association_scope").in("person_id", personIds),
   ]);
-  if (addresses.error || approaches.error || seized.error || media.error || factions.error || legacyLinks.error) throw addresses.error ?? approaches.error ?? seized.error ?? media.error ?? factions.error ?? legacyLinks.error;
-  const legacyIds = [...new Set((legacyLinks.data ?? []).map((row) => row.source_record_id as string))];
-  const legacySources = legacyIds.length
-    ? await api.from("legacy_source_records").select("record_id,image_object_key").in("record_id", legacyIds)
-    : { data: [], error: null };
-  if (legacySources.error) throw legacySources.error;
-  const legacyUrlById = new Map(await Promise.all((legacySources.data ?? []).map(async (row) => [row.record_id as string, await signedUrl(row.image_object_key)] as const)));
+  if (addresses.error || approaches.error || seized.error || media.error || factions.error) throw addresses.error ?? approaches.error ?? seized.error ?? media.error ?? factions.error;
   const factionMap = new Map((factions.data ?? []).map((row) => [row.id as number, row.name as string]));
   const mediaWithUrls = await Promise.all((media.data ?? []).map(async (row) => ({
     id: row.id,
@@ -342,7 +335,6 @@ async function peopleRows(ids?: number[]) {
     approachCount: (approaches.data ?? []).filter((item) => item.person_id === row.id).length,
     seizedObjects: (seized.data ?? []).filter((item) => item.person_id === row.id).map((item) => ({ id: item.id, description: item.description, quantity: item.quantity, seizedAt: item.seized_at ?? "", location: item.location ?? "", notes: item.notes ?? "" })),
     media: mediaWithUrls.filter((item) => (media.data ?? []).find((source) => source.id === item.id)?.person_id === row.id),
-    legacyDocuments: (legacyLinks.data ?? []).filter((item) => item.person_id === row.id && legacyUrlById.get(item.source_record_id)).map((item) => ({ sourceRecordId: item.source_record_id, associationScope: item.association_scope, url: legacyUrlById.get(item.source_record_id) })),
   }));
 }
 
@@ -529,28 +521,6 @@ async function handleData(path: string, req: Request) {
       .eq("invite_type", "bulk")
       .is("revoked_at", null);
     return error ? fail(error.message, 400) : json({ revoked: true });
-  }
-  if (path === "/legacy-sources" && req.method === "GET") {
-    const url = new URL(req.url);
-    const page = Math.min(220, Math.max(0, Number.parseInt(url.searchParams.get("page") ?? "0", 10) || 0));
-    const term = clean(url.searchParams.get("q")).replace(/[^\p{L}\p{N} ]/gu, " ").replace(/\s+/g, " ").trim().slice(0, 80);
-    let query = api.from("legacy_source_records")
-      .select("record_id,source_order,record_type,original_name,display_name,source_person_count,image_object_key", { count: "exact" })
-      .order("source_order", { ascending: true })
-      .range(page * 50, page * 50 + 49);
-    if (term) query = query.or(`record_id.ilike.%${term}%,display_name.ilike.%${term}%,original_name.ilike.%${term}%`);
-    const { data, count, error } = await query;
-    if (error) return fail("Não foi possível consultar o acervo legado.", 500);
-    const sources = await Promise.all((data ?? []).map(async (row) => ({
-      recordId: row.record_id,
-      sourceOrder: row.source_order,
-      recordType: row.record_type,
-      originalName: row.original_name,
-      displayName: row.display_name,
-      sourcePersonCount: row.source_person_count,
-      imageUrl: await signedUrl(row.image_object_key),
-    })));
-    return json({ sources, total: count ?? 0, page, pageSize: 50 });
   }
   if (path === "/people" && req.method === "GET") {
     const url = new URL(req.url);
@@ -792,7 +762,7 @@ async function handleData(path: string, req: Request) {
     const from = (page - 1) * 10;
     const to = from + 9;
     const { data, error, count } = await api.from("people")
-      .select("id,full_name,cpf,status,created_by,created_at", { count: "exact" })
+      .select("id,full_name,cpf,status,created_by,created_at,legacy_import_manifest_sha256", { count: "exact" })
       .order("created_at", { ascending: false })
       .range(from, to);
     if (error) return fail(error.message, 500);
@@ -807,7 +777,7 @@ async function handleData(path: string, req: Request) {
     const rows = (data ?? []).map((row) => {
       const creator = profileById.get(row.created_by as string);
       const authUser = userById.get(row.created_by as string);
-      const creatorName = creator ? [creator.rank, creator.war_name].filter(Boolean).join(" ") : (authUser?.email ?? null);
+      const creatorName = row.legacy_import_manifest_sha256 ? "Arquivos" : (creator ? [creator.rank, creator.war_name].filter(Boolean).join(" ") : (authUser?.email ?? null));
       return {
         id: row.id,
         name: row.full_name,
