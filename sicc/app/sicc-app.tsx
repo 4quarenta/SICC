@@ -17,11 +17,14 @@ type Faction = { id: number; name: string };
 type SeizedObject = { id?: number; description: string; quantity?: number; seizedAt: string; location?: string; notes?: string };
 type Approach = { id: number; occurredAt: string | null; latitude: string | null; longitude: string | null; accuracyMeters: number | null; locationLabel: string | null; notes: string | null };
 type Media = { id: number; kind: "face" | "face_front" | "face_profile" | "tattoo"; originalName: string; description: string | null; capturedAt: string | null; url: string };
+type LegacyDocument = { sourceRecordId: string; associationScope: "individual_source" | "shared_document_text"; url: string | null };
+type LegacySource = { recordId: string; sourceOrder: number; recordType: "individual" | "shared_image"; originalName: string | null; displayName: string | null; sourcePersonCount: number; imageUrl: string | null };
 type Person = {
   id: number;
   fullName: string;
   nickname: string | null;
-  cpf: string;
+  cpf: string | null;
+  legacySourceRecordId: string | null;
   birthDate: string | null;
   motherName: string | null;
   tattooDescription: string | null;
@@ -38,10 +41,11 @@ type Person = {
   approachCount: number;
   seizedObjects: SeizedObject[];
   media: Media[];
+  legacyDocuments: LegacyDocument[];
 };
 
 type GeoPoint = { latitude: string; longitude: string; accuracyMeters: string };
-type View = "search" | "register" | "account" | "operators" | "records" | "alerts";
+type View = "search" | "archive" | "register" | "account" | "operators" | "records" | "alerts";
 type SearchMode = "text" | "face" | "tattoo";
 type RegisterNotice = { kind: "success" | "error"; text: string };
 type InstallPromptEvent = Event & {
@@ -295,7 +299,8 @@ function invitedByLabel(value: string | null | undefined) {
   return prefix[1] + (name ? " " + name.toUpperCase() : "");
 }
 
-function maskCpf(cpf: string) {
+function maskCpf(cpf: string | null | undefined) {
+  if (!cpf) return "Não informado";
   const digits = cpf.replace(/\D/g, "");
   if (digits.length !== 11) return cpf;
   return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6, 9)}-${digits.slice(9)}`;
@@ -559,7 +564,7 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
   }
 
   const firstName = operator.name.split(" ")[0] || "Operador";
-  const title = view === "register" ? "Novo cadastro" : view === "account" ? "Minha conta" : view === "operators" ? "Operadores" : view === "records" ? "Cadastros" : view === "alerts" ? "Alertas operacionais" : "Consulta de pessoas";
+  const title = view === "register" ? "Novo cadastro" : view === "account" ? "Minha conta" : view === "operators" ? "Operadores" : view === "records" ? "Cadastros" : view === "alerts" ? "Alertas operacionais" : view === "archive" ? "Acervo legado" : "Consulta de pessoas";
 
   function showRegisterNotice(kind: RegisterNotice["kind"], text: string) {
     setMessage(text);
@@ -681,8 +686,8 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
     const timeout = window.setTimeout(() => controller.abort(), 15000);
     try {
       const response = await apiFetch(`/api/people?q=${encodeURIComponent(clean)}`, { signal: controller.signal, cache: "no-store" });
-      let data: { people?: Person[]; total?: number; error?: string } = {};
-      try { data = await response.json() as { people?: Person[]; total?: number; error?: string }; } catch { /* resposta não JSON do servidor */ }
+      let data: { people?: Person[]; total?: number; truncated?: boolean; error?: string } = {};
+      try { data = await response.json() as { people?: Person[]; total?: number; truncated?: boolean; error?: string }; } catch { /* resposta não JSON do servidor */ }
       if (!response.ok) {
         setMessage(data.error ?? "Não foi possível realizar a consulta.");
         return;
@@ -693,6 +698,7 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
       setResults(localPeople);
       setView("search");
       if (!localPeople.length) setMessage("Nenhuma pessoa localizada no banco do SICC.");
+      else if (data.truncated) setMessage("Muitos resultados. Refine o nome ou informe o CPF para localizar o cadastro desejado.");
     } catch (error) {
       setMessage(error instanceof DOMException && error.name === "AbortError" ? "A consulta demorou demais. Tente novamente." : "Não foi possível realizar a consulta. Verifique sua conexão.");
     } finally {
@@ -986,6 +992,17 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
     setRegisterNotice({ kind: "success", text: "As alterações foram salvas com sucesso." });
   }
 
+  async function selectPerson(person: Person) {
+    try {
+      const response = await apiFetch(`/api/people?id=${person.id}`, { cache: "no-store" });
+      const data = await response.json() as { people?: Person[]; error?: string };
+      if (!response.ok || !data.people?.[0]) throw new Error(data.error ?? "Não foi possível abrir a ficha.");
+      setSelected(data.people[0]);
+    } catch (reason) {
+      setMessage(reason instanceof Error ? reason.message : "Não foi possível abrir a ficha.");
+    }
+  }
+
   async function deletePerson(person: Person) {
     setLoading(true);
     const response = await apiFetch(`/api/people/${person.id}`, { method: "DELETE" });
@@ -1014,6 +1031,7 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
       <aside className="sidebar" aria-label="Navegação principal">
         <span className="nav-label">NAVEGAÇÃO</span>
         <button className={view === "search" ? "active" : ""} onClick={() => navigate("search")}><i><NavIcon name="search" /></i>Consultar</button>
+        <button className={view === "archive" ? "active" : ""} onClick={() => navigate("archive")}><i>▧</i>Acervo</button>
         <button className={view === "alerts" ? "active" : ""} onClick={() => navigate("alerts")}><i>⚠</i>Alertas</button>
         {operator.role === "admin" && <button className={view === "operators" ? "active" : ""} onClick={() => navigate("operators")}><i>♙</i>Operadores</button>}
         {operator.role === "admin" && <button className={view === "records" ? "active" : ""} onClick={() => navigate("records")}><i>▤</i>Cadastros</button>}
@@ -1064,16 +1082,19 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
               </form>
             )}
             <small className="people-total">Pessoas cadastradas no SICC: {totalPeopleCount === null ? "…" : totalPeopleCount}</small>
+            <button type="button" className="secondary" onClick={() => navigate("archive")}>Consultar imagens e documentos do acervo</button>
             <small>▣ Toda consulta é vinculada ao operador e registrada para auditoria.</small>
           </section>
         )}
+
+        {view === "archive" && <LegacyArchiveView />}
 
         {message && <div className="feedback" role="status">{message}</div>}
 
         {view === "search" && visibleResults.length > 0 && (
           <section className="panel results-panel">
             <div className="panel-title"><h2>Resultados da consulta</h2><span>{visibleResults.length} resultado(s)</span></div>
-            <PersonList people={visibleResults} onSelect={setSelected} />
+            <PersonList people={visibleResults} onSelect={(person) => void selectPerson(person)} />
           </section>
         )}
 
@@ -1512,6 +1533,50 @@ function PhotoInput({ name, label, required, multiple }: { name: string; label: 
 }
 
 type AdminRow = { id: number | string; name?: string; warName?: string; rank?: string; email?: string; role?: string; invitedBy?: string | null; cpf?: string; createdBy?: string | null; createdByName?: string | null; createdAt: string };
+function LegacyArchiveView() {
+  const [input, setInput] = useState("");
+  const [term, setTerm] = useState("");
+  const [page, setPage] = useState(0);
+  const [sources, setSources] = useState<LegacySource[]>([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    const controller = new AbortController();
+    setLoading(true);
+    setError("");
+    const params = new URLSearchParams({ page: String(page) });
+    if (term) params.set("q", term);
+    void apiFetch(`/api/legacy-sources?${params}`, { signal: controller.signal, cache: "no-store" })
+      .then(async (response) => {
+        const data = await response.json() as { sources?: LegacySource[]; total?: number; error?: string };
+        if (!response.ok) throw new Error(data.error ?? "Não foi possível consultar o acervo.");
+        setSources(data.sources ?? []);
+        setTotal(data.total ?? 0);
+      })
+      .catch((reason) => { if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : "Não foi possível consultar o acervo."); })
+      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
+    return () => controller.abort();
+  }, [page, term]);
+  return <section className="panel results-panel">
+    <div className="panel-title"><h2>Registros de origem</h2><span>{total.toLocaleString("pt-BR")} registro(s)</span></div>
+    <p>Imagens compartilhadas são documentos do acervo; a imagem, por si só, não identifica uma pessoa.</p>
+    <form onSubmit={(event) => { event.preventDefault(); setPage(0); setTerm(input.trim()); }}>
+      <label htmlFor="archive-query">Nome legível, nome do arquivo ou ID do registro</label>
+      <div className="search-row"><div className="input-wrap"><span>⌕</span><input id="archive-query" value={input} onChange={(event) => setInput(event.target.value)} maxLength={80} /></div><button className="primary" disabled={loading}>Buscar</button></div>
+    </form>
+    {error && <div className="feedback" role="alert">{error}</div>}
+    {loading ? <p>Carregando acervo…</p> : <div className="repeat-list">{sources.map((source) => <article className="repeat-card" key={source.recordId}>
+      <div className="repeat-head"><b>{source.displayName ?? (source.recordType === "shared_image" ? "Imagem compartilhada" : "Identificação individual em revisão")}</b><small>#{source.sourceOrder} · {source.recordId}</small></div>
+      {source.originalName && <small>Arquivo: {source.originalName}</small>}
+      {source.recordType === "shared_image" && <small>{source.sourcePersonCount} pessoa(s) descrita(s) no documento, sem atribuição por aparência.</small>}
+      {source.imageUrl ? <a href={source.imageUrl} target="_blank" rel="noreferrer">Abrir imagem do acervo</a> : <small>Imagem indisponível; o registro e a parte do manifest foram preservados.</small>}
+    </article>)}</div>}
+    {!loading && !sources.length && !error && <p>Nenhum registro corresponde à busca.</p>}
+    <div className="form-actions"><button type="button" className="secondary" disabled={loading || page === 0} onClick={() => setPage((value) => value - 1)}>Anterior</button><span>Página {page + 1} de {Math.max(1, Math.ceil(total / 50))}</span><button type="button" className="secondary" disabled={loading || (page + 1) * 50 >= total} onClick={() => setPage((value) => value + 1)}>Próxima</button></div>
+  </section>;
+}
+
 function AdminList({ kind }: { kind: "operators" | "records" }) {
   const [rows, setRows] = useState<AdminRow[]>([]); const [page, setPage] = useState(1); const [total, setTotal] = useState(0); const [loading, setLoading] = useState(true);
   const [confirmRow, setConfirmRow] = useState<AdminRow | null>(null);
@@ -1582,6 +1647,13 @@ function PersonModal({ person, onClose, onApproach, onEdit, onDelete }: { person
 
         {person.media?.length > 0 && <SheetSection title="Imagens de identificação" count={person.media.length}>
           <div className="media-gallery">{person.media.map((item) => <figure key={item.id}><img src={item.url} alt={mediaLabel[item.kind]} onClick={() => setLightbox({ src: item.url, alt: mediaLabel[item.kind] })} /><figcaption>{mediaLabel[item.kind]}<small>{item.capturedAt ? formatDate(item.capturedAt) : "Data não informada"}</small></figcaption></figure>)}</div>
+        </SheetSection>}
+
+        {person.legacyDocuments?.length > 0 && <SheetSection title="Imagens do acervo legado" count={person.legacyDocuments.length}>
+          <div className="media-gallery">{person.legacyDocuments.filter((item) => item.url).map((item) => {
+            const label = item.associationScope === "shared_document_text" ? "Documento compartilhado; vínculo por texto, sem identificação facial" : "Imagem do registro de origem";
+            return <figure key={item.sourceRecordId}><img src={item.url!} alt={label} onClick={() => setLightbox({ src: item.url!, alt: label })} /><figcaption>{label}</figcaption></figure>;
+          })}</div>
         </SheetSection>}
 
         <SheetSection title="Endereços" count={person.addresses?.length || 0}>
@@ -1705,7 +1777,7 @@ function EditPersonModal({
         <FormSection title="Identificação" subtitle="Dados civis e operacionais">
           <div className="form-grid">
             <label className="wide">Nome completo *<input name="fullName" required minLength={3} defaultValue={person.fullName} /></label>
-            <label>CPF *<input name="cpf" required inputMode="numeric" defaultValue={maskCpf(person.cpf)} /></label>
+            <label>CPF{person.legacySourceRecordId ? "" : " *"}<input name="cpf" required={!person.legacySourceRecordId} inputMode="numeric" defaultValue={person.cpf ? maskCpf(person.cpf) : ""} /></label>
             <label>Alcunha<input name="nickname" defaultValue={person.nickname ?? ""} /></label>
             <label>Data de nascimento<input name="birthDate" type="date" defaultValue={person.birthDate ?? ""} /></label>
             <label>Nome da mãe<input name="motherName" defaultValue={person.motherName ?? ""} /></label>
