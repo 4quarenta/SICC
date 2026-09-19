@@ -68,7 +68,7 @@ jobs:
           ]
           changed = False
           for old, new in replacements:
-              if old in s:
+              if old in s and new not in s:
                   s = s.replace(old, new, 1)
                   changed = True
           if changed:
@@ -92,7 +92,7 @@ jobs:
           ]
           api_changed = False
           for old, new in api_replacements:
-              if old in a:
+              if old in a and new not in a:
                   a = a.replace(old, new, 1)
                   api_changed = True
           if api_changed:
