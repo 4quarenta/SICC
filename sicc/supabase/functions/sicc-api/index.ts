@@ -894,6 +894,18 @@ async function handleData(path: string, req: Request) {
     });
     return json({ rows, total: count ?? 0 });
   }
+  if (path === "/admin/operators" && req.method === "PATCH") {
+    const targetId = new URL(req.url).searchParams.get("id");
+    if (!targetId || targetId === user.id) return fail("Não é possível alterar o próprio nível de acesso.", 400);
+    const body = await bodyJson(req);
+    const role = body.role === "admin" ? "admin" : "";
+    if (!role) return fail("Nível de acesso inválido.", 400);
+    const { data: target, error: targetError } = await api.from("operator_profiles").select("user_id").eq("user_id", targetId).maybeSingle();
+    if (targetError) return fail(targetError.message, 500);
+    if (!target) return fail("Operador não encontrado.", 404);
+    const { error } = await api.from("operator_profiles").update({ role }).eq("user_id", targetId);
+    return error ? fail(error.message, 400) : json({ updated: true, role });
+  }
   if (path === "/admin/operators" && req.method === "DELETE") {
     const id = new URL(req.url).searchParams.get("id");
     if (!id || id === user.id) return fail("Operador inválido.", 400);

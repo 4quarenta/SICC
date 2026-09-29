@@ -1059,6 +1059,22 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
     }
   }
 
+  async function editAdminRecord(row: AdminRow) {
+    setLoading(true);
+    setMessage("");
+    try {
+      const response = await apiFetch("/api/people?id=" + encodeURIComponent(String(row.id)), { cache: "no-store" });
+      const data = await response.json() as { people?: Person[]; error?: string };
+      if (!response.ok || !data.people?.[0]) throw new Error(data.error ?? "Não foi possível carregar o cadastro.");
+      await loadFactions();
+      setEditPerson(data.people[0]);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Não foi possível carregar o cadastro.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function deletePerson(person: Person) {
     setLoading(true);
     const response = await apiFetch(`/api/people/${person.id}`, { method: "DELETE" });
@@ -1190,7 +1206,7 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
         )}
 
         {view === "operators" && operator.role === "admin" && <AdminList kind="operators" />}
-        {view === "records" && operator.role === "admin" && <AdminList kind="records" />}
+        {view === "records" && operator.role === "admin" && <AdminList kind="records" onEditRecord={(row) => void editAdminRecord(row)} />}
 
         {view === "register" && (
           <form ref={registerFormRef} className="register-form panel" onSubmit={register}>
@@ -1631,9 +1647,10 @@ function LegacyArchiveView() {
   </section>;
 }
 
-function AdminList({ kind }: { kind: "operators" | "records" }) {
+function AdminList({ kind, onEditRecord }: { kind: "operators" | "records"; onEditRecord?: (row: AdminRow) => void }) {
   const [rows, setRows] = useState<AdminRow[]>([]); const [page, setPage] = useState(1); const [total, setTotal] = useState(0); const [loading, setLoading] = useState(true);
   const [confirmRow, setConfirmRow] = useState<AdminRow | null>(null);
+  const [roleChange, setRoleChange] = useState<AdminRow | null>(null);
   async function load() { setLoading(true); const response = await apiFetch(`/api/admin/${kind}?page=${page}`); const data = await response.json() as { rows?: AdminRow[]; total?: number }; setRows(data.rows ?? []); setTotal(data.total ?? 0); setLoading(false); }
   useEffect(() => {
     let active = true;
@@ -1647,6 +1664,12 @@ function AdminList({ kind }: { kind: "operators" | "records" }) {
     const response = kind === "operators" ? await apiFetch(`/api/admin/operators?id=${encodeURIComponent(String(row.id))}`, { method: "DELETE" }) : await apiFetch(`/api/people/${row.id}`, { method: "DELETE" });
     if (response.ok) await load();
   }
+  async function changeRole() {
+    if (!roleChange) return;
+    const roleResponse = await apiFetch("/api/admin/operators?id=" + encodeURIComponent(String(roleChange.id)), { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ role: "admin" }) });
+    setRoleChange(null);
+    if (roleResponse.ok) await load();
+  }
   const pages = Math.max(1, Math.ceil(total / 10));
   return <section className="panel admin-list"><div className="panel-title"><h2>{kind === "operators" ? "Contas cadastradas" : "Pessoas cadastradas"}</h2><span>{total} no total</span></div>
     {loading ? <p>Carregando…</p> : <div className="admin-rows">{rows.map((row) => {
@@ -1654,10 +1677,18 @@ function AdminList({ kind }: { kind: "operators" | "records" }) {
         ? [rankLabel(row.rank), row.warName || row.name].filter((value) => Boolean(value && value.trim())).join(" ") || "Nome não informado"
         : row.name || "Nome não informado";
       const createdBy = row.createdByName || row.createdBy || "Arquivos";
-      return <article key={row.id}><div><b>{displayName}</b><small>{kind === "operators" ? `${row.role === "admin" ? "Administrador" : "Operador"}${row.email ? ` · ${row.email}` : ""}${row.invitedBy ? ` · convidado por ${row.invitedBy}` : ""}` : `${maskCpf(row.cpf ?? "")} · cadastrado por ${createdBy}`}</small></div>{!(kind === "operators" && row.role === "admin") && <button onClick={() => setConfirmRow(row)}>Apagar</button>}</article>;
+      const summary = kind === "operators"
+        ? [
+            row.role === "admin" ? "Administrador" : "Operador",
+            row.email ? " · " + row.email : "",
+            row.invitedBy ? " · convidado por " + row.invitedBy : "",
+          ].join("")
+        : maskCpf(row.cpf ?? "") + " · cadastrado por " + createdBy;
+      return <article key={row.id}><div><b>{displayName}</b><small>{summary}</small></div><div className="admin-row-actions">{kind === "records" && <button type="button" className="admin-edit-button" onClick={() => onEditRecord?.(row)}>Editar</button>}{kind === "operators" && row.role !== "admin" && <button type="button" className="admin-role-button" onClick={() => setRoleChange(row)}>Promover a admin</button>}{!(kind === "operators" && row.role === "admin") && <button type="button" onClick={() => setConfirmRow(row)}>Apagar</button>}</div></article>;
     })}</div>}
     <div className="pagination"><button disabled={page <= 1} onClick={() => setPage((value) => value - 1)}>Anterior</button><span>{page} de {pages}</span><button disabled={page >= pages} onClick={() => setPage((value) => value + 1)}>Próxima</button></div>
     {confirmRow && <ConfirmModal title={`Apagar ${kind === "operators" ? "operador" : "cadastro"}?`} message={`Esta ação removerá ${confirmRow.name || "este registro"} permanentemente.`} confirmLabel="Apagar" onCancel={() => setConfirmRow(null)} onConfirm={async () => { const row = confirmRow; setConfirmRow(null); await remove(row); }} />}
+    {roleChange && <ConfirmModal title="Promover a administrador?" message={(roleChange.warName || roleChange.name || "Esta conta") + " passará a ter o nível administrador."} confirmLabel="Promover" onCancel={() => setRoleChange(null)} onConfirm={changeRole} />}
   </section>;
 }
 
