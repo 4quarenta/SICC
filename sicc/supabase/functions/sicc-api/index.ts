@@ -967,9 +967,10 @@ async function handleData(path: string, req: Request) {
     let updated = 0;
     for (const item of updates.slice(0, 20)) {
       if (!Number.isInteger(item?.mediaId) || !Array.isArray(item?.embedding) || item.embedding.length !== 128 || item.embedding.some((value: unknown) => typeof value !== "number" || !Number.isFinite(value))) continue;
-      const result = await api.from("person_media").update({ face_embedding: item.embedding, face_embedding_model: "face-api.js-tiny-128", face_embedding_created_at: new Date().toISOString() }).eq("id", item.mediaId).in("kind", ["face", "face_front", "face_profile"]);
+      const vector = `[${item.embedding.join(",")}]`;
+      const result = await api.from("person_media").update({ face_embedding: vector, face_embedding_model: "face-api.js-tiny-128", face_embedding_created_at: new Date().toISOString() }).eq("id", item.mediaId).in("kind", ["face", "face_front", "face_profile"]).select("id").maybeSingle();
       if (result.error) return fail(result.error.message, 500);
-      updated += 1;
+      if (result.data?.id) updated += 1;
     }
     return json({ updated });
   }
