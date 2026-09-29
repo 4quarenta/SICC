@@ -300,7 +300,22 @@ async function faceEmbedding(file: File) {
     const image = await new Promise<HTMLImageElement>((resolve, reject) => {
       const element = new Image(); element.onload = () => resolve(element); element.onerror = () => reject(new Error("IMAGE_DECODE_FAILED")); element.src = sourceUrl;
     });
-    const detections = await faceapi.detectAllFaces(image, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.3 })).withFaceLandmarks(true).withFaceDescriptors();
+    const width = image.naturalWidth || image.width;
+    const height = image.naturalHeight || image.height;
+    const maxDimension = Math.max(width, height);
+    const source = maxDimension < 1200 ? (() => {
+      const scale = 1200 / maxDimension;
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.round(width * scale);
+      canvas.height = Math.round(height * scale);
+      const context = canvas.getContext("2d");
+      if (!context) return image;
+      context.imageSmoothingEnabled = true;
+      context.imageSmoothingQuality = "high";
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+      return canvas;
+    })() : image;
+    const detections = await faceapi.detectAllFaces(source, new faceapi.TinyFaceDetectorOptions({ inputSize: 608, scoreThreshold: 0.2 })).withFaceLandmarks(true).withFaceDescriptors();
     if (!detections.length) throw new Error("Nenhum rosto detectado. Use uma foto frontal, nítida e bem iluminada.");
     const largest = detections.reduce((a, b) => a.detection.box.width * a.detection.box.height >= b.detection.box.width * b.detection.box.height ? a : b);
     return Array.from(largest.descriptor);
@@ -1153,7 +1168,7 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
                   <label className="file-drop"><input id="search-image" name="image" type="file" accept="image/jpeg,image/png,image/webp" required /><span>▧ Escolher da galeria ou usar a câmera</span></label>
                   <button className="primary" disabled={loading}>{loading ? "Analisando…" : "Verificar"}</button>
                 </div>
-                <div className="biometric-note"><b>Busca visual por similaridade:</b> os candidatos são ordenados por semelhança visual aproximada. O resultado é apenas apoio à conferência e não confirma identidade.</div>
+                <div className="biometric-note"><b>Busca facial:</b> o sistema procura o rosto mesmo em fotos de corpo inteiro e amplia imagens pequenas automaticamente. Se houver mais de uma pessoa ou o rosto ficar muito distante, recorte a imagem deixando apenas o rosto. Os candidatos são ordenados por similaridade e exigem conferência humana.</div>
               </form>
             )}
             <small className="people-total">Pessoas cadastradas no SICC: {totalPeopleCount === null ? "…" : totalPeopleCount}</small>
