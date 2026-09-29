@@ -847,7 +847,6 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
         return;
       }
       if (embedding) form.set("faceEmbedding", JSON.stringify(embedding));
-      if (signature) form.set("visualHash", signature);
       const response = await apiFetch("/api/search-image", { method: "POST", body: form });
       const data = (await response.json()) as { personIds?: number[]; notice?: string; error?: string };
       if (!response.ok) {
