@@ -347,10 +347,8 @@ async function reindexMissingFaceEmbeddings(onProgress: (processed: number) => v
     }
     if (!updates.length) return processed;
     const updateResponse = await apiFetch("/api/face-index", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ updates }) });
-    if (!updateResponse.ok) {
-      const updateData = await updateResponse.json() as { error?: string };
-      throw new Error(updateData.error ?? "Não foi possível salvar o índice facial.");
-    }
+    const updateData = await updateResponse.json() as { updated?: number; error?: string };
+    if (!updateResponse.ok || !updateData.updated) throw new Error(updateData.error ?? "Nenhum descritor facial foi salvo. Verifique o acesso às fotos do acervo.");
   }
 }
 
