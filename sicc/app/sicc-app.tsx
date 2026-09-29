@@ -282,10 +282,11 @@ let faceModelsPromise: Promise<FaceApiModule> | null = null;
 async function ensureFaceModels() {
   if (!faceModelsPromise) {
     faceModelsPromise = import("@vladmandic/face-api").then(async (faceapi) => {
+      const modelBaseUrl = new URL(`${import.meta.env.BASE_URL}models/face-api/`, window.location.href).toString();
       await Promise.all([
-        faceapi.nets.tinyFaceDetector.loadFromUri("/models/face-api"),
-        faceapi.nets.faceLandmark68TinyNet.loadFromUri("/models/face-api"),
-        faceapi.nets.faceRecognitionNet.loadFromUri("/models/face-api"),
+        faceapi.nets.tinyFaceDetector.loadFromUri(modelBaseUrl),
+        faceapi.nets.faceLandmark68TinyNet.loadFromUri(modelBaseUrl),
+        faceapi.nets.faceRecognitionNet.loadFromUri(modelBaseUrl),
       ]);
       return faceapi;
     }).catch((error) => { faceModelsPromise = null; throw error; });
@@ -457,6 +458,7 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
   const [registerDraft, setRegisterDraft] = useState(blankRegisterDraft());
   const [results, setResults] = useState<Person[]>([]);
   const [faceScores, setFaceScores] = useState<Record<number, number>>({});
+  const [faceImageName, setFaceImageName] = useState("");
   const [selected, setSelected] = useState<Person | null>(null);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
@@ -1165,7 +1167,7 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
               <form className="image-search" onSubmit={searchImage}>
                 <label htmlFor="search-image">Foto facial de referência</label>
                 <div className="search-row">
-                  <label className="file-drop"><input id="search-image" name="image" type="file" accept="image/jpeg,image/png,image/webp" required /><span>▧ Escolher da galeria ou usar a câmera</span></label>
+                  <label className="file-drop"><input id="search-image" name="image" type="file" accept="image/jpeg,image/png,image/webp" required onChange={(event) => setFaceImageName(event.currentTarget.files?.[0]?.name ?? "")} /><span>{faceImageName ? `✓ Imagem carregada: ${faceImageName}` : "▧ Escolher da galeria ou usar a câmera"}</span></label>
                   <button className="primary" disabled={loading}>{loading ? "Analisando…" : "Verificar"}</button>
                 </div>
                 <div className="biometric-note"><b>Busca facial:</b> o sistema procura o rosto mesmo em fotos de corpo inteiro e amplia imagens pequenas automaticamente. Se houver mais de uma pessoa ou o rosto ficar muito distante, recorte a imagem deixando apenas o rosto. Os candidatos são ordenados por similaridade e exigem conferência humana.</div>
