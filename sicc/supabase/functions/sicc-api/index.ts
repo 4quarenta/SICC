@@ -909,7 +909,7 @@ async function handleData(path: string, req: Request) {
       };
     });
     const filteredRows = search
-      ? mappedRows.filter((row) => normalizeSearch([row.warName, row.rank, row.role, row.email, row.invitedBy].filter(Boolean).join(" ")).includes(search))
+      ? mappedRows.filter((row) => normalizeSearch([row.name, row.warName, row.rank, row.role, row.email, row.invitedBy].filter(Boolean).join(" ")).includes(search))
       : mappedRows;
     return json({ rows: search ? filteredRows.slice(from, to + 1) : filteredRows, total: search ? filteredRows.length : count ?? 0 });
   }
