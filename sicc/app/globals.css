@@ -144,3 +144,4 @@ body:has(.edit-sheet) .modal-backdrop{z-index:100}
 
 .vehicle-editor{display:flex;flex-direction:column;gap:10px}.vehicle-editor-heading{display:flex;flex-direction:column;gap:3px}.vehicle-editor-heading small{color:var(--muted);font-weight:500}.vehicle-card{padding:12px;border:1px solid var(--line);border-radius:10px;background:#f7fbfb}.vehicle-card-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}.vehicle-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.alert-expired-note{margin:14px 0 0;padding:10px 12px;border-radius:8px;background:#f1f4f5;color:#5b6970;font-size:12px}
 @media(max-width:800px){.vehicle-fields{grid-template-columns:1fr}}
+.admin-search{margin:2px 0 18px;padding:14px;border:1px solid var(--line);border-radius:11px;background:#f8fcfc}.admin-search label{display:block;margin-bottom:8px;font-size:13px;font-weight:800}.admin-search-hint{display:block;margin-top:9px;color:var(--muted)}

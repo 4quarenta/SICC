@@ -1651,15 +1651,17 @@ function AdminList({ kind, onEditRecord }: { kind: "operators" | "records"; onEd
   const [rows, setRows] = useState<AdminRow[]>([]); const [page, setPage] = useState(1); const [total, setTotal] = useState(0); const [loading, setLoading] = useState(true);
   const [confirmRow, setConfirmRow] = useState<AdminRow | null>(null);
   const [roleChange, setRoleChange] = useState<AdminRow | null>(null);
-  async function load() { setLoading(true); const response = await apiFetch(`/api/admin/${kind}?page=${page}`); const data = await response.json() as { rows?: AdminRow[]; total?: number }; setRows(data.rows ?? []); setTotal(data.total ?? 0); setLoading(false); }
+  const [searchInput, setSearchInput] = useState(""); const [searchTerm, setSearchTerm] = useState("");
+  function endpoint() { return `/api/admin/${kind}?page=${page}${kind === "operators" && searchTerm ? `&q=${encodeURIComponent(searchTerm)}` : ""}`; }
+  async function load() { setLoading(true); const response = await apiFetch(endpoint()); const data = await response.json() as { rows?: AdminRow[]; total?: number }; setRows(data.rows ?? []); setTotal(data.total ?? 0); setLoading(false); }
   useEffect(() => {
     let active = true;
-    apiFetch(`/api/admin/${kind}?page=${page}`).then((response) => response.json()).then((data: { rows?: AdminRow[]; total?: number }) => {
+    apiFetch(endpoint()).then((response) => response.json()).then((data: { rows?: AdminRow[]; total?: number }) => {
       if (!active) return;
       setRows(data.rows ?? []); setTotal(data.total ?? 0); setLoading(false);
     }).catch(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [page, kind]);
+  }, [page, kind, searchTerm]);
   async function remove(row: AdminRow) {
     const response = kind === "operators" ? await apiFetch(`/api/admin/operators?id=${encodeURIComponent(String(row.id))}`, { method: "DELETE" }) : await apiFetch(`/api/people/${row.id}`, { method: "DELETE" });
     if (response.ok) await load();
@@ -1672,6 +1674,7 @@ function AdminList({ kind, onEditRecord }: { kind: "operators" | "records"; onEd
   }
   const pages = Math.max(1, Math.ceil(total / 10));
   return <section className="panel admin-list"><div className="panel-title"><h2>{kind === "operators" ? "Contas cadastradas" : "Pessoas cadastradas"}</h2><span>{total} no total</span></div>
+    {kind === "operators" && <form className="admin-search" onSubmit={(event) => { event.preventDefault(); setPage(1); setSearchTerm(searchInput.trim()); }}><label htmlFor="operator-search">Pesquisar operador</label><div className="search-row"><div className="input-wrap"><span aria-hidden="true">⌕</span><input id="operator-search" value={searchInput} onChange={(event) => setSearchInput(event.target.value)} maxLength={80} placeholder="Nome, posto, e-mail ou perfil" /></div><button type="submit" className="primary" disabled={loading}>Buscar</button>{searchTerm && <button type="button" className="secondary" onClick={() => { setSearchInput(""); setPage(1); setSearchTerm(""); }}>Limpar</button>}</div>{searchTerm && <small className="admin-search-hint">Filtro aplicado: {searchTerm}</small>}</form>}
     {loading ? <p>Carregando…</p> : <div className="admin-rows">{rows.map((row) => {
       const displayName = kind === "operators"
         ? [rankLabel(row.rank), row.warName || row.name].filter((value) => Boolean(value && value.trim())).join(" ") || "Nome não informado"

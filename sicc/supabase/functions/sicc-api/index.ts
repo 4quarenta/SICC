@@ -93,6 +93,14 @@ function clean(value: FormDataEntryValue | string | null | undefined) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function normalizeSearch(value: unknown) {
+  return String(value ?? "")
+    .toLocaleLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim();
+}
+
 async function resolveFactionId(form: FormData): Promise<{ id: number | null; error?: string }> {
   if (clean(form.get("factionAffiliated")) !== "yes") return { id: null };
   const choice = clean(form.get("factionId"));
@@ -860,13 +868,21 @@ async function handleData(path: string, req: Request) {
     return json({ rows, total: count ?? 0 });
   }
   if (path === "/admin/operators" && req.method === "GET") {
-    const page = Math.max(1, Number(new URL(req.url).searchParams.get("page") ?? 1) || 1);
+    const params = new URL(req.url).searchParams;
+    const page = Math.max(1, Number(params.get("page") ?? 1) || 1);
+    const search = normalizeSearch(params.get("q")).slice(0, 80);
     const from = (page - 1) * 10;
     const to = from + 9;
-    const { data, error, count } = await api.from("operator_profiles")
-      .select("user_id,war_name,rank,role,invited_by,created_at", { count: "exact" })
-      .order("created_at", { ascending: false })
-      .range(from, to);
+    const result = search
+      ? await api.from("operator_profiles")
+        .select("user_id,war_name,rank,role,invited_by,created_at")
+        .order("created_at", { ascending: false })
+        .range(0, 999)
+      : await api.from("operator_profiles")
+        .select("user_id,war_name,rank,role,invited_by,created_at", { count: "exact" })
+        .order("created_at", { ascending: false })
+        .range(from, to);
+    const { data, error, count } = result;
     if (error) return fail(error.message, 500);
     const profiles = data ?? [];
     const invitedIds = [...new Set(profiles.map((row) => row.invited_by).filter(Boolean))] as string[];
@@ -877,7 +893,7 @@ async function handleData(path: string, req: Request) {
     if (invitedError || usersResult.error) return fail(invitedError?.message ?? usersResult.error?.message ?? "Não foi possível carregar os operadores.", 500);
     const invitedById = new Map((invitedProfiles ?? []).map((row) => [row.user_id as string, row]));
     const userById = new Map((usersResult.data?.users ?? []).map((item) => [item.id, item]));
-    const rows = profiles.map((row) => {
+    const mappedRows = profiles.map((row) => {
       const user = userById.get(row.user_id as string);
       const inviter = row.invited_by ? invitedById.get(row.invited_by as string) : null;
       const invitedBy = inviter ? [inviter.rank, inviter.war_name].filter(Boolean).join(" ") : (row.invited_by ? (userById.get(row.invited_by as string)?.email ?? null) : null);
@@ -892,7 +908,10 @@ async function handleData(path: string, req: Request) {
         createdAt: row.created_at,
       };
     });
-    return json({ rows, total: count ?? 0 });
+    const filteredRows = search
+      ? mappedRows.filter((row) => normalizeSearch([row.warName, row.rank, row.role, row.email, row.invitedBy].filter(Boolean).join(" ")).includes(search))
+      : mappedRows;
+    return json({ rows: search ? filteredRows.slice(from, to + 1) : filteredRows, total: search ? filteredRows.length : count ?? 0 });
   }
   if (path === "/admin/operators" && req.method === "PATCH") {
     const targetId = new URL(req.url).searchParams.get("id");
