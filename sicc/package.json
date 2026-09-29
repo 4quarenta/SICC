@@ -14,10 +14,13 @@
     "supabase:function:serve": "supabase functions serve sicc-api --no-verify-jwt",
     "supabase:function:deploy": "supabase functions deploy sicc-api",
     "test:parser": "node --experimental-strip-types tests/infoseg-parser.test.ts",
-    "test:importador": "node tools/importador-legado/rules.test.mjs && node tools/importador-legado/caption-ocr.test.mjs && node tools/importador-legado/multi-person.test.mjs"
+    "test:importador": "node tools/importador-legado/rules.test.mjs && node tools/importador-legado/caption-ocr.test.mjs && node tools/importador-legado/multi-person.test.mjs",
+    "test:compressao": "node --test tools/importador-legado/comprimir-imagens.test.mjs",
+    "test:revisao": "node --test tools/importador-legado/revisar-dados.test.mjs tools/importador-legado/aprofundar-revisao.test.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.55.0",
+    "@vladmandic/face-api": "^1.7.15",
     "react": "19.2.6",
     "react-dom": "19.2.6",
     "sharp": "^0.35.4",
