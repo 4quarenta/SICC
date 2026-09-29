@@ -947,7 +947,32 @@ async function handleData(path: string, req: Request) {
     }));
     return json({ matches, notice: "Resultados ordenados por similaridade facial. O percentual é uma medida técnica de comparação e exige conferência humana; não confirma identidade." });
   }
-  if (path === "/face-index") return fail("O reindexamento deve ser executado por rotina administrativa.", 403);
+  if (path === "/face-index" && req.method === "GET") {
+    const { data, error } = await api.from("person_media")
+      .select("id,object_key,original_name")
+      .in("kind", ["face", "face_front", "face_profile"])
+      .is("face_embedding", null)
+      .order("id", { ascending: true })
+      .limit(20);
+    if (error) return fail(error.message, 500);
+    const media = await Promise.all((data ?? []).map(async (row) => {
+      const signed = await api.storage.from(bucket).createSignedUrl(row.object_key, 300);
+      return signed.error || !signed.data?.signedUrl ? null : { id: row.id, originalName: row.original_name, url: signed.data.signedUrl };
+    }));
+    return json({ media: media.filter(Boolean) });
+  }
+  if (path === "/face-index" && req.method === "POST") {
+    const body = await bodyJson(req);
+    const updates = Array.isArray(body.updates) ? body.updates : [];
+    let updated = 0;
+    for (const item of updates.slice(0, 20)) {
+      if (!Number.isInteger(item?.mediaId) || !Array.isArray(item?.embedding) || item.embedding.length !== 128 || item.embedding.some((value: unknown) => typeof value !== "number" || !Number.isFinite(value))) continue;
+      const result = await api.from("person_media").update({ face_embedding: item.embedding, face_embedding_model: "face-api.js-tiny-128", face_embedding_created_at: new Date().toISOString() }).eq("id", item.mediaId).in("kind", ["face", "face_front", "face_profile"]);
+      if (result.error) return fail(result.error.message, 500);
+      updated += 1;
+    }
+    return json({ updated });
+  }
   return fail("Endpoint não encontrado.", 404);
 }
 

@@ -325,6 +325,35 @@ async function faceEmbedding(file: File) {
 
 async function safeFaceEmbedding(file: File) { try { return await faceEmbedding(file); } catch { return null; } }
 
+async function reindexMissingFaceEmbeddings(onProgress: (processed: number) => void) {
+  let processed = 0;
+  for (;;) {
+    const response = await apiFetch("/api/face-index");
+    const data = await response.json() as { media?: Array<{ id: number; url: string; originalName: string }>; error?: string };
+    if (!response.ok) throw new Error(data.error ?? "Não foi possível preparar o índice facial.");
+    const media = data.media ?? [];
+    if (!media.length) return processed;
+    const updates: Array<{ mediaId: number; embedding: number[] }> = [];
+    for (const item of media) {
+      const imageResponse = await fetch(item.url);
+      if (imageResponse.ok) {
+        const blob = await imageResponse.blob();
+        const file = new File([blob], item.originalName || `face-${item.id}.jpg`, { type: blob.type || "image/jpeg" });
+        const embedding = await safeFaceEmbedding(file);
+        if (embedding) updates.push({ mediaId: item.id, embedding });
+      }
+      processed += 1;
+      onProgress(processed);
+    }
+    if (!updates.length) return processed;
+    const updateResponse = await apiFetch("/api/face-index", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ updates }) });
+    if (!updateResponse.ok) {
+      const updateData = await updateResponse.json() as { error?: string };
+      throw new Error(updateData.error ?? "Não foi possível salvar o índice facial.");
+    }
+  }
+}
+
 const blankObject = (): SeizedObject => ({ description: "", seizedAt: currentBrasiliaDate() });
 const blankRegisterDraft = () => ({ fullName: "", nickname: "", cpf: "", birthDate: "", motherName: "", tattooDescription: "", city: "", state: "PB", notes: "" });
 
@@ -868,6 +897,8 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
         return;
       }
       form.set("faceEmbedding", JSON.stringify(embedding));
+      setMessage("Preparando o índice facial…");
+      await reindexMissingFaceEmbeddings((processed) => setMessage(`Preparando o índice facial… ${processed} foto(s) analisada(s).`));
       const response = await apiFetch("/api/search-image", { method: "POST", body: form });
       const data = (await response.json()) as { matches?: FaceMatch[]; notice?: string; error?: string };
       if (!response.ok) {
