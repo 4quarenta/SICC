@@ -45,7 +45,7 @@ type Person = {
 };
 
 type GeoPoint = { latitude: string; longitude: string; accuracyMeters: string };
-type View = "search" | "archive" | "register" | "account" | "operators" | "records" | "alerts";
+type View = "search" | "register" | "account" | "operators" | "records" | "alerts";
 type SearchMode = "text" | "face" | "tattoo";
 type RegisterNotice = { kind: "success" | "error"; text: string };
 type InstallPromptEvent = Event & {
@@ -614,7 +614,7 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
   }
 
   const firstName = operator.name.split(" ")[0] || "Operador";
-  const title = view === "register" ? "Novo cadastro" : view === "account" ? "Minha conta" : view === "operators" ? "Operadores" : view === "records" ? "Cadastros" : view === "alerts" ? "Alertas operacionais" : view === "archive" ? "Acervo legado" : "Consulta de pessoas";
+  const title = view === "register" ? "Novo cadastro" : view === "account" ? "Minha conta" : view === "operators" ? "Operadores" : view === "records" ? "Cadastros" : view === "alerts" ? "Alertas operacionais" : "Consulta de pessoas";
 
   function showRegisterNotice(kind: RegisterNotice["kind"], text: string) {
     setMessage(text);
@@ -1089,7 +1089,6 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
       <aside className="sidebar" aria-label="Navegação principal">
         <span className="nav-label">NAVEGAÇÃO</span>
         <button className={view === "search" ? "active" : ""} onClick={() => navigate("search")}><i><NavIcon name="search" /></i>Consultar</button>
-        <button className={view === "archive" ? "active" : ""} onClick={() => navigate("archive")}><i>▧</i>Acervo</button>
         <button className={view === "alerts" ? "active" : ""} onClick={() => navigate("alerts")}><i>⚠</i>Alertas</button>
         {operator.role === "admin" && <button className={view === "operators" ? "active" : ""} onClick={() => navigate("operators")}><i>♙</i>Operadores</button>}
         {operator.role === "admin" && <button className={view === "records" ? "active" : ""} onClick={() => navigate("records")}><i>▤</i>Cadastros</button>}
@@ -1140,12 +1139,10 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
               </form>
             )}
             <small className="people-total">Pessoas cadastradas no SICC: {totalPeopleCount === null ? "…" : totalPeopleCount}</small>
-            <button type="button" className="secondary" onClick={() => navigate("archive")}>Consultar imagens e documentos do acervo</button>
             <small>▣ Toda consulta é vinculada ao operador e registrada para auditoria.</small>
           </section>
         )}
 
-        {view === "archive" && <LegacyArchiveView />}
 
         {message && <div className="feedback" role="status">{message}</div>}
 
