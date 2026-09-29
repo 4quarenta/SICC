@@ -575,16 +575,15 @@ async function handleData(path: string, req: Request) {
     if (Number.isFinite(id) && id > 0) ids = [id];
     else if (q) {
       const cpfQuery = q.replace(/\D/g, "");
-      const [name, nickname, mother, tattoo, cpf] = await Promise.all([
+      const [name, nickname, mother, cpf] = await Promise.all([
         api.from("people").select("id").ilike("full_name", `%${q}%`).limit(100),
         api.from("people").select("id").ilike("nickname", `%${q}%`).limit(100),
         api.from("people").select("id").ilike("mother_name", `%${q}%`).limit(100),
-        api.from("people").select("id").ilike("tattoo_description", `%${q}%`).limit(100),
         api.from("people").select("id").eq("cpf", cpfQuery || q),
       ]);
-      if (name.error || nickname.error || mother.error || tattoo.error || cpf.error) return fail("Não foi possível consultar os cadastros.", 500);
-      ids = [...new Set([...(name.data ?? []), ...(nickname.data ?? []), ...(mother.data ?? []), ...(tattoo.data ?? []), ...(cpf.data ?? [])].map((row) => row.id as number))];
-      truncated = [name.data,nickname.data,mother.data,tattoo.data].some((rows) => (rows ?? []).length >= 100) || ids.length > 100;
+      if (name.error || nickname.error || mother.error || cpf.error) return fail("Não foi possível consultar os cadastros.", 500);
+      ids = [...new Set([...(name.data ?? []), ...(nickname.data ?? []), ...(mother.data ?? []), ...(cpf.data ?? [])].map((row) => row.id as number))];
+      truncated = [name.data,nickname.data,mother.data].some((rows) => (rows ?? []).length >= 100) || ids.length > 100;
       ids = ids.slice(0, 100);
     }
     const people = await peopleRows(ids);

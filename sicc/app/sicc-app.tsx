@@ -46,7 +46,7 @@ type Person = {
 
 type GeoPoint = { latitude: string; longitude: string; accuracyMeters: string };
 type View = "search" | "register" | "account" | "operators" | "records" | "alerts";
-type SearchMode = "text" | "face" | "tattoo";
+type SearchMode = "text" | "face";
 type RegisterNotice = { kind: "success" | "error"; text: string };
 type InstallPromptEvent = Event & {
   prompt: () => Promise<void>;
@@ -842,8 +842,7 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
     }
     try {
       const embedding = searchMode === "face" ? await safeFaceEmbedding(image) : null;
-      const signature = searchMode === "tattoo" ? await safeVisualSignature(image) : "";
-      if (searchMode === "face" ? !embedding : !signature) {
+      if (!embedding) {
         setMessage("Não foi possível analisar esta imagem. Use JPG, PNG ou WEBP e tente novamente.");
         return;
       }
@@ -1116,9 +1115,8 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
         {view === "search" && (
           <section className="search-card">
             <div className="search-tabs" role="tablist" aria-label="Tipo de consulta">
-              <button className={searchMode === "text" ? "active" : ""} onClick={() => setSearchMode("text")}>⌨ Nome, alcunha ou tatuagem</button>
+              <button className={searchMode === "text" ? "active" : ""} onClick={() => setSearchMode("text")}>⌨ Nome ou alcunha</button>
               {IMAGE_SEARCH_ENABLED && <button className={searchMode === "face" ? "active" : ""} onClick={() => setSearchMode("face")}>◎ Rosto</button>}
-              {IMAGE_SEARCH_ENABLED && <button className={searchMode === "tattoo" ? "active" : ""} onClick={() => setSearchMode("tattoo")}>◇ Tatuagem</button>}
             </div>
             {searchMode === "text" ? (
               <form onSubmit={(event) => event.preventDefault()}>
@@ -1130,7 +1128,7 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
               </form>
             ) : (
               <form className="image-search" onSubmit={searchImage}>
-                <label htmlFor="search-image">{searchMode === "face" ? "Foto facial de referência" : "Foto da tatuagem de referência"}</label>
+                <label htmlFor="search-image">Foto facial de referência</label>
                 <div className="search-row">
                   <label className="file-drop"><input id="search-image" name="image" type="file" accept="image/jpeg,image/png,image/webp" required /><span>▧ Escolher da galeria ou usar a câmera</span></label>
                   <button className="primary" disabled={loading}>{loading ? "Analisando…" : "Verificar"}</button>
