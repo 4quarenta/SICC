@@ -300,8 +300,8 @@ async function faceEmbedding(file: File) {
     const image = await new Promise<HTMLImageElement>((resolve, reject) => {
       const element = new Image(); element.onload = () => resolve(element); element.onerror = () => reject(new Error("IMAGE_DECODE_FAILED")); element.src = sourceUrl;
     });
-    const detections = await faceapi.detectAllFaces(image, new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.45 })).withFaceLandmarks(true).withFaceDescriptors();
-    if (!detections.length) return null;
+    const detections = await faceapi.detectAllFaces(image, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.3 })).withFaceLandmarks(true).withFaceDescriptors();
+    if (!detections.length) throw new Error("Nenhum rosto detectado. Use uma foto frontal, nítida e bem iluminada.");
     const largest = detections.reduce((a, b) => a.detection.box.width * a.detection.box.height >= b.detection.box.width * b.detection.box.height ? a : b);
     return Array.from(largest.descriptor);
   } finally { URL.revokeObjectURL(sourceUrl); }
@@ -843,16 +843,18 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
       return;
     }
     try {
-      const embedding = searchMode === "face" ? await safeFaceEmbedding(image) : null;
-      if (!embedding) {
-        setMessage("Não foi possível analisar esta imagem. Use JPG, PNG ou WEBP e tente novamente.");
+      let embedding: number[];
+      try {
+        embedding = await faceEmbedding(image);
+      } catch (error) {
+        setMessage(error instanceof Error ? error.message : "Não foi possível detectar um rosto nesta imagem.");
         return;
       }
-      if (embedding) form.set("faceEmbedding", JSON.stringify(embedding));
+      form.set("faceEmbedding", JSON.stringify(embedding));
       const response = await apiFetch("/api/search-image", { method: "POST", body: form });
       const data = (await response.json()) as { matches?: FaceMatch[]; notice?: string; error?: string };
       if (!response.ok) {
-        setMessage(data.error ?? "Não foi possível analisar a imagem.");
+        setMessage(data.error ?? `O serviço de reconhecimento recusou a consulta (HTTP ${response.status}).`);
         return;
       }
       const people = await Promise.all((data.matches ?? []).map(async (match) => {
@@ -864,8 +866,8 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
       setResults(people.map((item) => item.person).filter((person): person is Person => Boolean(person)));
       setView("search");
       setMessage(data.notice ?? "Consulta concluída.");
-    } catch {
-      setMessage("Não foi possível concluir a busca por imagem. Verifique a conexão e tente novamente.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Não foi possível concluir a busca por imagem. Verifique a conexão e tente novamente.");
     } finally {
       setLoading(false);
     }
