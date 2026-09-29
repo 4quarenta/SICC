@@ -47,6 +47,7 @@ type Person = {
 type GeoPoint = { latitude: string; longitude: string; accuracyMeters: string };
 type View = "search" | "register" | "account" | "operators" | "records" | "alerts";
 type SearchMode = "text" | "face";
+type FaceMatch = { personId: number; similarityPercent: number };
 type RegisterNotice = { kind: "success" | "error"; text: string };
 type InstallPromptEvent = Event & {
   prompt: () => Promise<void>;
@@ -440,6 +441,7 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
   // accidentally invoke a class-like value and blank the app before render.
   const [registerDraft, setRegisterDraft] = useState(blankRegisterDraft());
   const [results, setResults] = useState<Person[]>([]);
+  const [faceScores, setFaceScores] = useState<Record<number, number>>({});
   const [selected, setSelected] = useState<Person | null>(null);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
@@ -848,17 +850,18 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
       }
       if (embedding) form.set("faceEmbedding", JSON.stringify(embedding));
       const response = await apiFetch("/api/search-image", { method: "POST", body: form });
-      const data = (await response.json()) as { personIds?: number[]; notice?: string; error?: string };
+      const data = (await response.json()) as { matches?: FaceMatch[]; notice?: string; error?: string };
       if (!response.ok) {
         setMessage(data.error ?? "Não foi possível analisar a imagem.");
         return;
       }
-      const people = await Promise.all((data.personIds ?? []).map(async (id) => {
-        const result = await apiFetch(`/api/people?id=${id}`);
+      const people = await Promise.all((data.matches ?? []).map(async (match) => {
+        const result = await apiFetch(`/api/people?id=${match.personId}`);
         const payload = (await result.json()) as { people?: Person[] };
-        return payload.people?.[0] ?? null;
+        return { person: payload.people?.[0] ?? null, match };
       }));
-      setResults(people.filter((person): person is Person => Boolean(person)));
+      setFaceScores(Object.fromEntries(people.filter((item): item is { person: Person; match: FaceMatch } => Boolean(item.person)).map(({ person, match }) => [person.id, match.similarityPercent])));
+      setResults(people.map((item) => item.person).filter((person): person is Person => Boolean(person)));
       setView("search");
       setMessage(data.notice ?? "Consulta concluída.");
     } catch {
@@ -1162,7 +1165,7 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
         {view === "search" && visibleResults.length > 0 && (
           <section className="panel results-panel">
             <div className="panel-title"><h2>Resultados da consulta</h2><span>{visibleResults.length} resultado(s)</span></div>
-            <PersonList people={visibleResults} onSelect={(person) => void selectPerson(person)} />
+            <PersonList people={visibleResults} faceScores={faceScores} onSelect={(person) => void selectPerson(person)} />
           </section>
         )}
 
@@ -1705,14 +1708,14 @@ function uniqueMedia(items: Media[] | undefined) {
   });
 }
 
-function PersonList({ people, onSelect }: { people: Person[]; onSelect: (person: Person) => void }) {
+function PersonList({ people, faceScores = {}, onSelect }: { people: Person[]; faceScores?: Record<number, number>; onSelect: (person: Person) => void }) {
   if (!people.length) return <div className="empty"><i>⌕</i><b>Nenhum registro para exibir</b><span>Faça uma consulta ou inclua um novo cadastro.</span></div>;
   return <div className="person-list">{people.map((person) => {
     const media = uniqueMedia(person.media);
     const face = media.find((item) => item.url && (item.kind === "face" || item.kind === "face_front" || item.kind === "face_profile")) ?? media.find((item) => item.url);
     return <button key={person.id} onClick={() => onSelect(person)}>
       {face ? <img className="list-photo" src={face.url} alt="" /> : <span className="list-avatar">{initials(person.fullName)}</span>}
-      <span className="person-name"><b>{person.fullName || "Nome não identificado"}</b><small>{person.nickname ? `“${person.nickname}” · ` : ""}{maskCpf(person.cpf)}</small><em>{formatDate(person.birthDate)}</em><em>{person.motherName || "Mãe não informada"}</em><span className="person-alerts">{person.factionName && <strong className="person-alert faction-alert">⚠ Faccionado: {person.factionName}</strong>}{person.seizedObjects?.length > 0 && <strong className="person-alert object-alert">⚠ Possui objeto apreendido</strong>}{person.notes?.trim() && <strong className="person-alert observation-alert">⚠ Possui observação</strong>}</span></span>
+      <span className="person-name"><b>{person.fullName || "Nome não identificado"}</b><small>{person.nickname ? `“${person.nickname}” · ` : ""}{maskCpf(person.cpf)}</small>{faceScores[person.id] !== undefined && <em>Similaridade facial: {faceScores[person.id].toFixed(1)}%</em>}<em>{formatDate(person.birthDate)}</em><em>{person.motherName || "Mãe não informada"}</em><span className="person-alerts">{person.factionName && <strong className="person-alert faction-alert">⚠ Faccionado: {person.factionName}</strong>}{person.seizedObjects?.length > 0 && <strong className="person-alert object-alert">⚠ Possui objeto apreendido</strong>}{person.notes?.trim() && <strong className="person-alert observation-alert">⚠ Possui observação</strong>}</span></span>
       <span className={`badge ${person.status}`}>{statusLabel[person.status]}</span><span className="arrow">›</span>
     </button>;
   })}</div>;

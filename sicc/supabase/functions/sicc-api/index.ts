@@ -934,13 +934,18 @@ async function handleData(path: string, req: Request) {
   if (path === "/search-image" && req.method === "POST") {
     const form = await req.formData();
     const mode = clean(form.get("mode"));
-    if (mode !== "face") return fail("A busca por tatuagem ainda não está disponível.", 400);
+    if (mode !== "face") return fail("Modo de busca facial inválido.", 400);
     let embedding: unknown;
     try { embedding = JSON.parse(String(form.get("faceEmbedding") ?? "null")); } catch { return fail("Descritor facial inválido.", 400); }
     if (!Array.isArray(embedding) || embedding.length !== 128 || embedding.some((value) => typeof value !== "number" || !Number.isFinite(value))) return fail("Não foi possível extrair um descritor facial válido.", 400);
     const { data, error } = await api.rpc("search_face_candidates", { query_embedding: embedding, match_limit: 25, match_threshold: 0.62 });
     if (error) return fail(error.message, 500);
-    return json({ personIds: [...new Set((data ?? []).map((row: { person_id: number }) => row.person_id))], notice: "Candidatos ordenados por similaridade. Confirme manualmente a identidade; nenhum resultado é confirmação automática." });
+    const matches = (data ?? []).map((row: { person_id: number; distance: number }) => ({
+      personId: row.person_id,
+      distance: Number(row.distance),
+      similarityPercent: Math.round(Math.max(0, Math.min(100, (1 - Number(row.distance)) * 100)) * 10) / 10,
+    }));
+    return json({ matches, notice: "Resultados ordenados por similaridade facial. O percentual é uma medida técnica de comparação e exige conferência humana; não confirma identidade." });
   }
   if (path === "/face-index") return fail("O reindexamento deve ser executado por rotina administrativa.", 403);
   return fail("Endpoint não encontrado.", 404);
