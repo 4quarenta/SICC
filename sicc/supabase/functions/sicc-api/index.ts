@@ -6,6 +6,7 @@ const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
 const anonKey = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
 const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const bucket = Deno.env.get("SICC_STORAGE_BUCKET") ?? "sicc-media";
+const faceMatchThreshold = 0.06;
 // The App ID is public and also embedded in the frontend. Keep an explicit
 // fallback so push delivery does not silently stop when only the secret was
 // configured in Supabase.
@@ -938,7 +939,7 @@ async function handleData(path: string, req: Request) {
     let embedding: unknown;
     try { embedding = JSON.parse(String(form.get("faceEmbedding") ?? "null")); } catch { return fail("Descritor facial inválido.", 400); }
     if (!Array.isArray(embedding) || embedding.length !== 128 || embedding.some((value) => typeof value !== "number" || !Number.isFinite(value))) return fail("Não foi possível extrair um descritor facial válido.", 400);
-    const { data, error } = await api.rpc("search_face_candidates", { query_embedding: embedding, match_limit: 100, match_threshold: 0.1 });
+    const { data, error } = await api.rpc("search_face_candidates", { query_embedding: embedding, match_limit: 100, match_threshold: faceMatchThreshold });
     if (error) return fail(error.message, 500);
     const matches: Array<{ personId: number; distance: number; similarityPercent: number }> = [];
     const seenPeople = new Set<number>();
@@ -952,10 +953,10 @@ async function handleData(path: string, req: Request) {
     const pending = await api.from("person_media").select("id", { count: "exact", head: true }).in("kind", ["face", "face_front", "face_profile", "legacy"]).is("face_embedding", null);
     const pendingCount = pending.error ? null : pending.count ?? 0;
     const notice = matches.length
-      ? "Resultados com similaridade técnica igual ou superior a 90%. Confirme manualmente a identidade; o percentual não representa uma probabilidade estatística."
+      ? "Resultados com similaridade técnica igual ou superior a 94%. Confirme manualmente a identidade; o percentual não representa uma probabilidade estatística."
       : pendingCount
-        ? `Nenhum candidato atingiu 90% de similaridade técnica. O índice ainda está sendo preenchido (${pendingCount} foto(s) pendente(s)); tente novamente após o processamento.`
-        : "Nenhum candidato atingiu 90% de similaridade técnica. O índice é consultado instantaneamente.";
+        ? `Nenhum candidato atingiu 94% de similaridade técnica. O índice ainda está sendo preenchido (${pendingCount} foto(s) pendente(s)); tente novamente após o processamento.`
+        : "Nenhum candidato atingiu 94% de similaridade técnica. O índice é consultado instantaneamente.";
     return json({ matches, notice, pendingCount });
   }
   if (path === "/face-index" && req.method === "GET") {
