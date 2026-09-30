@@ -931,6 +931,7 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
       }));
       setFaceScores(Object.fromEntries(people.filter((item): item is { person: Person; match: FaceMatch } => Boolean(item.person)).map(({ person, match }) => [person.id, match.similarityPercent])));
       setResults(people.map((item) => item.person).filter((person): person is Person => Boolean(person)));
+      setSubmittedQuery("__face_search__");
       setView("search");
       setMessage(data.notice ?? "Consulta concluída.");
     } catch (error) {
@@ -1162,7 +1163,7 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
     setMessage("Cadastro apagado. A exclusão foi registrada na auditoria.");
   }
 
-  const visibleResults = submittedQuery && submittedQuery === query.trim() ? results : [];
+  const visibleResults = submittedQuery && (submittedQuery === query.trim() || submittedQuery === "__face_search__") ? results : [];
 
   return (
     <div className="app-shell">
@@ -1238,7 +1239,7 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
           </section>
         )}
 
-        {view === "search" && submittedQuery.length >= 3 && (
+        {view === "search" && submittedQuery.length >= 3 && submittedQuery !== "__face_search__" && (
           <section className="not-found-action">
             <b>Não achou quem procura?</b>
             <span>{visibleResults.length > 0 ? "Se a pessoa procurada não estiver entre os resultados, cadastre uma nova ficha." : "Cadastre uma nova ficha usando o termo pesquisado como ponto de partida."}</span>
