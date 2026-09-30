@@ -948,7 +948,7 @@ async function handleData(path: string, req: Request) {
     return json({ matches, notice: matches.length ? "Resultados com similaridade técnica igual ou superior a 90%. Confirme manualmente a identidade; o percentual não representa uma probabilidade estatística." : "Nenhum candidato atingiu 90% de similaridade técnica. O índice é consultado instantaneamente e não realiza indexação durante a busca." });
   }
   if (path === "/face-index" && req.method === "GET") {
-    const { data, error } = await api.from("person_media")
+    const { data, error, count } = await api.from("person_media")
       .select("id,object_key,original_name", { count: "exact" })
       .in("kind", ["face", "face_front", "face_profile", "legacy"])
       .is("face_embedding", null)
