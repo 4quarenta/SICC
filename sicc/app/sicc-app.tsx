@@ -305,7 +305,7 @@ async function faceEmbedding(file: File, options: { inputSize?: 320 | 416 | 608;
     const height = image.naturalHeight || image.height;
     const maxDimension = Math.max(width, height);
     const targetDimension = options.maxDimension ?? 1200;
-    const source = maxDimension < targetDimension ? (() => {
+    const source = maxDimension !== targetDimension ? (() => {
       const scale = targetDimension / maxDimension;
       const canvas = document.createElement("canvas");
       canvas.width = Math.round(width * scale);
