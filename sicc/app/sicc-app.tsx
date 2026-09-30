@@ -334,15 +334,22 @@ async function reindexMissingFaceEmbeddings(onProgress: (processed: number) => v
     const media = data.media ?? [];
     if (!media.length) return { processed, remaining: data.remainingCount ?? 0 };
     const updates: Array<{ mediaId: number; embedding: number[] }> = [];
-    for (const item of media) {
-      const imageResponse = await fetch(item.url);
-      if (imageResponse.ok) {
-        const blob = await imageResponse.blob();
-        const file = new File([blob], item.originalName || `face-${item.id}.jpg`, { type: blob.type || "image/jpeg" });
-        const embedding = await safeFaceEmbedding(file);
-        if (embedding) updates.push({ mediaId: item.id, embedding });
-      }
-      processed += 1;
+    for (let offset = 0; offset < media.length; offset += 4) {
+      const chunk = media.slice(offset, offset + 4);
+      const chunkUpdates = await Promise.all(chunk.map(async (item) => {
+        try {
+          const imageResponse = await fetch(item.url);
+          if (!imageResponse.ok) return null;
+          const blob = await imageResponse.blob();
+          const file = new File([blob], item.originalName || `face-${item.id}.jpg`, { type: blob.type || "image/jpeg" });
+          const embedding = await safeFaceEmbedding(file);
+          return embedding ? { mediaId: item.id, embedding } : null;
+        } catch {
+          return null;
+        }
+      }));
+      chunkUpdates.forEach((update) => { if (update) updates.push(update); });
+      processed += chunk.length;
       onProgress(processed);
     }
     if (!updates.length) return { processed, remaining: data.remainingCount ?? media.length };
