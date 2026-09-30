@@ -486,7 +486,6 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
   const [results, setResults] = useState<Person[]>([]);
   const [faceScores, setFaceScores] = useState<Record<number, number>>({});
   const [faceImageName, setFaceImageName] = useState("");
-  const [faceIndexing, setFaceIndexing] = useState(false);
   const [selected, setSelected] = useState<Person | null>(null);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
@@ -521,6 +520,7 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
   // Never put that value in React state: a state setter treats functions/classes
   // as updater callbacks and Safari/Chrome then throw without `new`.
   const oneSignalRef = useRef<OneSignalSdk | null>(null);
+  const faceIndexStartedRef = useRef(false);
   const [pushState, setPushState] = useState<"loading" | "unavailable" | "ready" | "enabled" | "denied">("loading");
   const [pushRequesting, setPushRequesting] = useState(false);
 
@@ -603,6 +603,18 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
       })
       .catch(() => {});
     return () => { active = false; };
+  }, [operator.id]);
+
+  useEffect(() => {
+    let active = true;
+    const timer = window.setTimeout(() => {
+      if (!active || faceIndexStartedRef.current) return;
+      faceIndexStartedRef.current = true;
+      void reindexMissingFaceEmbeddings(() => {}).catch(() => {
+        // A indexação de legado é oportunista; a consulta continua disponível com os vetores já prontos.
+      });
+    }, 10_000);
+    return () => { active = false; window.clearTimeout(timer); };
   }, [operator.id]);
 
   useEffect(() => {
@@ -918,26 +930,6 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
     }
   }
 
-  async function prepareFaceIndex() {
-    if (faceIndexing || loading) return;
-    setFaceIndexing(true);
-    setMessage("Preparando o índice facial…");
-    try {
-      const processed = await reindexMissingFaceEmbeddings((count) => setMessage(`Preparando o índice facial… ${count} foto(s) analisada(s).`));
-      setMessage(processed.processed
-        ? processed.remaining
-          ? `Índice facial atualizado: ${processed.processed} foto(s) processada(s); ${processed.remaining} permanecem pendentes por não terem um rosto detectável. As consultas já indexadas serão instantâneas.`
-          : `Índice facial atualizado: ${processed.processed} foto(s) processada(s). As próximas consultas serão instantâneas.`
-        : processed.remaining
-          ? `${processed.remaining} foto(s) permanecem pendentes por não terem um rosto detectável.`
-          : "O índice facial já está atualizado. As próximas consultas serão instantâneas.");
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Não foi possível preparar o índice facial.");
-    } finally {
-      setFaceIndexing(false);
-    }
-  }
-
   async function captureLocation(setter: (point: GeoPoint) => void) {
     setMessage("");
     if (!navigator.geolocation) {
@@ -1219,7 +1211,6 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
                   <button className="primary" disabled={loading}>{loading ? "Analisando…" : "Verificar"}</button>
                 </div>
                 <div className="biometric-note"><b>Busca facial:</b> o sistema procura o rosto mesmo em fotos de corpo inteiro e amplia imagens pequenas automaticamente. Se houver mais de uma pessoa ou o rosto ficar muito distante, recorte a imagem deixando apenas o rosto. Os candidatos são ordenados por similaridade e exigem conferência humana.</div>
-                <div className="face-index-maintenance"><button type="button" className="secondary" onClick={() => void prepareFaceIndex()} disabled={faceIndexing || loading}>{faceIndexing ? "Preparando índice…" : "Preparar índice facial"}</button><small>Execute uma vez para indexar fotos antigas. A consulta não faz essa etapa.</small></div>
               </form>
             )}
             <small className="people-total">Pessoas cadastradas no SICC: {totalPeopleCount === null ? "…" : totalPeopleCount}</small>

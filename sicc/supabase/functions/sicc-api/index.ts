@@ -950,7 +950,7 @@ async function handleData(path: string, req: Request) {
   if (path === "/face-index" && req.method === "GET") {
     const { data, error } = await api.from("person_media")
       .select("id,object_key,original_name", { count: "exact" })
-      .in("kind", ["face", "face_front", "face_profile"])
+      .in("kind", ["face", "face_front", "face_profile", "legacy"])
       .is("face_embedding", null)
       .order("id", { ascending: true })
       .limit(20);
@@ -968,7 +968,7 @@ async function handleData(path: string, req: Request) {
     for (const item of updates.slice(0, 20)) {
       if (!Number.isInteger(item?.mediaId) || !Array.isArray(item?.embedding) || item.embedding.length !== 128 || item.embedding.some((value: unknown) => typeof value !== "number" || !Number.isFinite(value))) continue;
       const vector = `[${item.embedding.join(",")}]`;
-      const result = await api.from("person_media").update({ face_embedding: vector, face_embedding_model: "face-api.js-tiny-128", face_embedding_created_at: new Date().toISOString() }).eq("id", item.mediaId).in("kind", ["face", "face_front", "face_profile"]).select("id").maybeSingle();
+      const result = await api.from("person_media").update({ face_embedding: vector, face_embedding_model: "face-api.js-tiny-128", face_embedding_created_at: new Date().toISOString() }).eq("id", item.mediaId).in("kind", ["face", "face_front", "face_profile", "legacy"]).select("id").maybeSingle();
       if (result.error) return fail(result.error.message, 500);
       if (result.data?.id) updated += 1;
     }
