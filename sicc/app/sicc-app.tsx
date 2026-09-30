@@ -328,12 +328,14 @@ async function safeFaceEmbedding(file: File, options?: { inputSize?: 320 | 416 |
 
 async function reindexMissingFaceEmbeddings(onProgress: (processed: number) => void) {
   let processed = 0;
+  let afterId = 0;
   for (;;) {
-    const response = await apiFetch("/api/face-index");
+    const response = await apiFetch(`/api/face-index?afterId=${afterId}`);
     const data = await response.json() as { media?: Array<{ id: number; url: string; originalName: string }>; remainingCount?: number; error?: string };
     if (!response.ok) throw new Error(data.error ?? "Não foi possível preparar o índice facial.");
     const media = data.media ?? [];
     if (!media.length) return { processed, remaining: data.remainingCount ?? 0 };
+    afterId = media[media.length - 1].id;
     const updates: Array<{ mediaId: number; embedding: number[] }> = [];
     for (let offset = 0; offset < media.length; offset += 4) {
       const chunk = media.slice(offset, offset + 4);
@@ -353,7 +355,7 @@ async function reindexMissingFaceEmbeddings(onProgress: (processed: number) => v
       processed += chunk.length;
       onProgress(processed);
     }
-    if (!updates.length) return { processed, remaining: data.remainingCount ?? media.length };
+    if (!updates.length) continue;
     const updateResponse = await apiFetch("/api/face-index", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ updates }) });
     const updateData = await updateResponse.json() as { updated?: number; error?: string };
     if (!updateResponse.ok || !updateData.updated) throw new Error(updateData.error ?? "Nenhum descritor facial foi salvo. Verifique o acesso às fotos do acervo.");

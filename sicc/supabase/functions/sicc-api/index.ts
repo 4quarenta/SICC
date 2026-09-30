@@ -959,10 +959,12 @@ async function handleData(path: string, req: Request) {
     return json({ matches, notice, pendingCount });
   }
   if (path === "/face-index" && req.method === "GET") {
+    const afterId = Number(new URL(req.url).searchParams.get("afterId") ?? "0");
     const { data, error, count } = await api.from("person_media")
       .select("id,object_key,original_name", { count: "exact" })
       .in("kind", ["face", "face_front", "face_profile", "legacy"])
       .is("face_embedding", null)
+      .gt("id", Number.isFinite(afterId) && afterId > 0 ? afterId : 0)
       .order("id", { ascending: true })
       .limit(20);
     if (error) return fail(error.message, 500);
