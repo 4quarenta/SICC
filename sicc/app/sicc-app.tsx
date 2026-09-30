@@ -329,10 +329,10 @@ async function reindexMissingFaceEmbeddings(onProgress: (processed: number) => v
   let processed = 0;
   for (;;) {
     const response = await apiFetch("/api/face-index");
-    const data = await response.json() as { media?: Array<{ id: number; url: string; originalName: string }>; error?: string };
+    const data = await response.json() as { media?: Array<{ id: number; url: string; originalName: string }>; remainingCount?: number; error?: string };
     if (!response.ok) throw new Error(data.error ?? "Não foi possível preparar o índice facial.");
     const media = data.media ?? [];
-    if (!media.length) return processed;
+    if (!media.length) return { processed, remaining: data.remainingCount ?? 0 };
     const updates: Array<{ mediaId: number; embedding: number[] }> = [];
     for (const item of media) {
       const imageResponse = await fetch(item.url);
@@ -345,7 +345,7 @@ async function reindexMissingFaceEmbeddings(onProgress: (processed: number) => v
       processed += 1;
       onProgress(processed);
     }
-    if (!updates.length) return processed;
+    if (!updates.length) return { processed, remaining: data.remainingCount ?? media.length };
     const updateResponse = await apiFetch("/api/face-index", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ updates }) });
     const updateData = await updateResponse.json() as { updated?: number; error?: string };
     if (!updateResponse.ok || !updateData.updated) throw new Error(updateData.error ?? "Nenhum descritor facial foi salvo. Verifique o acesso às fotos do acervo.");
@@ -924,7 +924,13 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
     setMessage("Preparando o índice facial…");
     try {
       const processed = await reindexMissingFaceEmbeddings((count) => setMessage(`Preparando o índice facial… ${count} foto(s) analisada(s).`));
-      setMessage(processed ? `Índice facial atualizado: ${processed} foto(s) processada(s). As próximas consultas serão instantâneas.` : "O índice facial já está atualizado. As próximas consultas serão instantâneas.");
+      setMessage(processed.processed
+        ? processed.remaining
+          ? `Índice facial atualizado: ${processed.processed} foto(s) processada(s); ${processed.remaining} permanecem pendentes por não terem um rosto detectável. As consultas já indexadas serão instantâneas.`
+          : `Índice facial atualizado: ${processed.processed} foto(s) processada(s). As próximas consultas serão instantâneas.`
+        : processed.remaining
+          ? `${processed.remaining} foto(s) permanecem pendentes por não terem um rosto detectável.`
+          : "O índice facial já está atualizado. As próximas consultas serão instantâneas.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Não foi possível preparar o índice facial.");
     } finally {

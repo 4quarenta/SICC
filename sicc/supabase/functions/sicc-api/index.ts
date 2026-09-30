@@ -949,7 +949,7 @@ async function handleData(path: string, req: Request) {
   }
   if (path === "/face-index" && req.method === "GET") {
     const { data, error } = await api.from("person_media")
-      .select("id,object_key,original_name")
+      .select("id,object_key,original_name", { count: "exact" })
       .in("kind", ["face", "face_front", "face_profile"])
       .is("face_embedding", null)
       .order("id", { ascending: true })
@@ -959,7 +959,7 @@ async function handleData(path: string, req: Request) {
       const signed = await api.storage.from(bucket).createSignedUrl(row.object_key, 300);
       return signed.error || !signed.data?.signedUrl ? null : { id: row.id, originalName: row.original_name, url: signed.data.signedUrl };
     }));
-    return json({ media: media.filter(Boolean) });
+    return json({ media: media.filter(Boolean), remainingCount: count ?? 0 });
   }
   if (path === "/face-index" && req.method === "POST") {
     const body = await bodyJson(req);
