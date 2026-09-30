@@ -294,7 +294,7 @@ async function ensureFaceModels() {
   return faceModelsPromise;
 }
 
-async function faceEmbedding(file: File) {
+async function faceEmbedding(file: File, options: { inputSize?: 320 | 416 | 608; maxDimension?: number } = {}) {
   const faceapi = await ensureFaceModels();
   const sourceUrl = URL.createObjectURL(file);
   try {
@@ -304,8 +304,9 @@ async function faceEmbedding(file: File) {
     const width = image.naturalWidth || image.width;
     const height = image.naturalHeight || image.height;
     const maxDimension = Math.max(width, height);
-    const source = maxDimension < 1200 ? (() => {
-      const scale = 1200 / maxDimension;
+    const targetDimension = options.maxDimension ?? 1200;
+    const source = maxDimension < targetDimension ? (() => {
+      const scale = targetDimension / maxDimension;
       const canvas = document.createElement("canvas");
       canvas.width = Math.round(width * scale);
       canvas.height = Math.round(height * scale);
@@ -316,14 +317,14 @@ async function faceEmbedding(file: File) {
       context.drawImage(image, 0, 0, canvas.width, canvas.height);
       return canvas;
     })() : image;
-    const detections = await faceapi.detectAllFaces(source, new faceapi.TinyFaceDetectorOptions({ inputSize: 608, scoreThreshold: 0.2 })).withFaceLandmarks(true).withFaceDescriptors();
+    const detections = await faceapi.detectAllFaces(source, new faceapi.TinyFaceDetectorOptions({ inputSize: options.inputSize ?? 608, scoreThreshold: 0.2 })).withFaceLandmarks(true).withFaceDescriptors();
     if (!detections.length) throw new Error("Nenhum rosto detectado. Use uma foto frontal, nítida e bem iluminada.");
     const largest = detections.reduce((a, b) => a.detection.box.width * a.detection.box.height >= b.detection.box.width * b.detection.box.height ? a : b);
     return Array.from(largest.descriptor);
   } finally { URL.revokeObjectURL(sourceUrl); }
 }
 
-async function safeFaceEmbedding(file: File) { try { return await faceEmbedding(file); } catch { return null; } }
+async function safeFaceEmbedding(file: File, options?: { inputSize?: 320 | 416 | 608; maxDimension?: number }) { try { return await faceEmbedding(file, options); } catch { return null; } }
 
 async function reindexMissingFaceEmbeddings(onProgress: (processed: number) => void) {
   let processed = 0;
@@ -342,7 +343,7 @@ async function reindexMissingFaceEmbeddings(onProgress: (processed: number) => v
           if (!imageResponse.ok) return null;
           const blob = await imageResponse.blob();
           const file = new File([blob], item.originalName || `face-${item.id}.jpg`, { type: blob.type || "image/jpeg" });
-          const embedding = await safeFaceEmbedding(file);
+          const embedding = await safeFaceEmbedding(file, { inputSize: 416, maxDimension: 960 });
           return embedding ? { mediaId: item.id, embedding } : null;
         } catch {
           return null;
@@ -996,7 +997,7 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
       form.delete("facePhotos");
       form.delete("tattoos");
       form.set("facePhotoHashes", JSON.stringify([]));
-      const embeddings = await Promise.all(compactedFaceFiles.map(safeFaceEmbedding));
+      const embeddings = await Promise.all(compactedFaceFiles.map((file) => safeFaceEmbedding(file)));
       form.set("faceEmbeddings", JSON.stringify(embeddings));
       form.set("tattooHashes", JSON.stringify(tattooHashes));
       compactedFaceFiles.forEach((file) => form.append("facePhotos", file));
@@ -1901,7 +1902,7 @@ function EditPersonModal({
       // A busca visual está desabilitada; não bloqueie o salvamento tentando gerar assinaturas locais.
       const editTattooHashes: string[] = [];
       form.set("facePhotoHashes", JSON.stringify([]));
-        const embeddings = await Promise.all(editFaceFiles.map(safeFaceEmbedding));
+        const embeddings = await Promise.all(editFaceFiles.map((file) => safeFaceEmbedding(file)));
         form.set("faceEmbeddings", JSON.stringify(embeddings));
       form.set("tattooHashes", JSON.stringify(editTattooHashes));
       form.set("removeMediaIds", JSON.stringify(removedMediaIds));

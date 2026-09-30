@@ -938,14 +938,25 @@ async function handleData(path: string, req: Request) {
     let embedding: unknown;
     try { embedding = JSON.parse(String(form.get("faceEmbedding") ?? "null")); } catch { return fail("Descritor facial inválido.", 400); }
     if (!Array.isArray(embedding) || embedding.length !== 128 || embedding.some((value) => typeof value !== "number" || !Number.isFinite(value))) return fail("Não foi possível extrair um descritor facial válido.", 400);
-    const { data, error } = await api.rpc("search_face_candidates", { query_embedding: embedding, match_limit: 25, match_threshold: 0.1 });
+    const { data, error } = await api.rpc("search_face_candidates", { query_embedding: embedding, match_limit: 100, match_threshold: 0.1 });
     if (error) return fail(error.message, 500);
-    const matches = (data ?? []).map((row: { person_id: number; distance: number }) => ({
-      personId: row.person_id,
-      distance: Number(row.distance),
-      similarityPercent: Math.round(Math.max(0, Math.min(100, (1 - Number(row.distance)) * 100)) * 10) / 10,
-    }));
-    return json({ matches, notice: matches.length ? "Resultados com similaridade técnica igual ou superior a 90%. Confirme manualmente a identidade; o percentual não representa uma probabilidade estatística." : "Nenhum candidato atingiu 90% de similaridade técnica. O índice é consultado instantaneamente e não realiza indexação durante a busca." });
+    const matches: Array<{ personId: number; distance: number; similarityPercent: number }> = [];
+    const seenPeople = new Set<number>();
+    for (const row of (data ?? []) as Array<{ person_id: number; distance: number }>) {
+      if (seenPeople.has(row.person_id)) continue;
+      seenPeople.add(row.person_id);
+      const distance = Number(row.distance);
+      matches.push({ personId: row.person_id, distance, similarityPercent: Math.round(Math.max(0, Math.min(100, (1 - distance) * 100)) * 10) / 10 });
+      if (matches.length >= 25) break;
+    }
+    const pending = await api.from("person_media").select("id", { count: "exact", head: true }).in("kind", ["face", "face_front", "face_profile", "legacy"]).is("face_embedding", null);
+    const pendingCount = pending.error ? null : pending.count ?? 0;
+    const notice = matches.length
+      ? "Resultados com similaridade técnica igual ou superior a 90%. Confirme manualmente a identidade; o percentual não representa uma probabilidade estatística."
+      : pendingCount
+        ? `Nenhum candidato atingiu 90% de similaridade técnica. O índice ainda está sendo preenchido (${pendingCount} foto(s) pendente(s)); tente novamente após o processamento.`
+        : "Nenhum candidato atingiu 90% de similaridade técnica. O índice é consultado instantaneamente.";
+    return json({ matches, notice, pendingCount });
   }
   if (path === "/face-index" && req.method === "GET") {
     const { data, error, count } = await api.from("person_media")
