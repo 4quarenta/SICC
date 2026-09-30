@@ -486,6 +486,7 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
   const [results, setResults] = useState<Person[]>([]);
   const [faceScores, setFaceScores] = useState<Record<number, number>>({});
   const [faceImageName, setFaceImageName] = useState("");
+  const [faceIndexing, setFaceIndexing] = useState(false);
   const [selected, setSelected] = useState<Person | null>(null);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
@@ -895,8 +896,6 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
         return;
       }
       form.set("faceEmbedding", JSON.stringify(embedding));
-      setMessage("Preparando o índice facial…");
-      await reindexMissingFaceEmbeddings((processed) => setMessage(`Preparando o índice facial… ${processed} foto(s) analisada(s).`));
       const response = await apiFetch("/api/search-image", { method: "POST", body: form });
       const data = (await response.json()) as { matches?: FaceMatch[]; notice?: string; error?: string };
       if (!response.ok) {
@@ -916,6 +915,20 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
       setMessage(error instanceof Error ? error.message : "Não foi possível concluir a busca por imagem. Verifique a conexão e tente novamente.");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function prepareFaceIndex() {
+    if (faceIndexing || loading) return;
+    setFaceIndexing(true);
+    setMessage("Preparando o índice facial…");
+    try {
+      const processed = await reindexMissingFaceEmbeddings((count) => setMessage(`Preparando o índice facial… ${count} foto(s) analisada(s).`));
+      setMessage(processed ? `Índice facial atualizado: ${processed} foto(s) processada(s). As próximas consultas serão instantâneas.` : "O índice facial já está atualizado. As próximas consultas serão instantâneas.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Não foi possível preparar o índice facial.");
+    } finally {
+      setFaceIndexing(false);
     }
   }
 
@@ -1200,6 +1213,7 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
                   <button className="primary" disabled={loading}>{loading ? "Analisando…" : "Verificar"}</button>
                 </div>
                 <div className="biometric-note"><b>Busca facial:</b> o sistema procura o rosto mesmo em fotos de corpo inteiro e amplia imagens pequenas automaticamente. Se houver mais de uma pessoa ou o rosto ficar muito distante, recorte a imagem deixando apenas o rosto. Os candidatos são ordenados por similaridade e exigem conferência humana.</div>
+                <div className="face-index-maintenance"><button type="button" className="secondary" onClick={() => void prepareFaceIndex()} disabled={faceIndexing || loading}>{faceIndexing ? "Preparando índice…" : "Preparar índice facial"}</button><small>Execute uma vez para indexar fotos antigas. A consulta não faz essa etapa.</small></div>
               </form>
             )}
             <small className="people-total">Pessoas cadastradas no SICC: {totalPeopleCount === null ? "…" : totalPeopleCount}</small>

@@ -938,14 +938,14 @@ async function handleData(path: string, req: Request) {
     let embedding: unknown;
     try { embedding = JSON.parse(String(form.get("faceEmbedding") ?? "null")); } catch { return fail("Descritor facial inválido.", 400); }
     if (!Array.isArray(embedding) || embedding.length !== 128 || embedding.some((value) => typeof value !== "number" || !Number.isFinite(value))) return fail("Não foi possível extrair um descritor facial válido.", 400);
-    const { data, error } = await api.rpc("search_face_candidates", { query_embedding: embedding, match_limit: 25, match_threshold: 0.62 });
+    const { data, error } = await api.rpc("search_face_candidates", { query_embedding: embedding, match_limit: 25, match_threshold: 0.1 });
     if (error) return fail(error.message, 500);
     const matches = (data ?? []).map((row: { person_id: number; distance: number }) => ({
       personId: row.person_id,
       distance: Number(row.distance),
       similarityPercent: Math.round(Math.max(0, Math.min(100, (1 - Number(row.distance)) * 100)) * 10) / 10,
     }));
-    return json({ matches, notice: "Resultados ordenados por similaridade facial. O percentual é uma medida técnica de comparação e exige conferência humana; não confirma identidade." });
+    return json({ matches, notice: matches.length ? "Resultados com similaridade técnica igual ou superior a 90%. Confirme manualmente a identidade; o percentual não representa uma probabilidade estatística." : "Nenhum candidato atingiu 90% de similaridade técnica. O índice é consultado instantaneamente e não realiza indexação durante a busca." });
   }
   if (path === "/face-index" && req.method === "GET") {
     const { data, error } = await api.from("person_media")
