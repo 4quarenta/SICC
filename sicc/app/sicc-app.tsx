@@ -317,10 +317,11 @@ async function faceEmbedding(file: File, options: { inputSize?: 320 | 416 | 608;
       context.drawImage(image, 0, 0, canvas.width, canvas.height);
       return canvas;
     })() : image;
-    const detectorOptions = new faceapi.TinyFaceDetectorOptions({ inputSize: options.inputSize ?? 608, scoreThreshold: 0.2 });
-    const detect = async (input: HTMLImageElement | HTMLCanvasElement, scoreThreshold = detectorOptions.scoreThreshold) =>
-      faceapi.detectAllFaces(input, new faceapi.TinyFaceDetectorOptions({ inputSize: options.inputSize ?? 608, scoreThreshold })).withFaceLandmarks(true).withFaceDescriptors();
-    let detections = await detect(source);
+    const primaryInputSize = options.inputSize ?? 608;
+    const inputSizes = primaryInputSize === 608 ? [608, 416] as const : [primaryInputSize] as const;
+    const detect = async (input: HTMLImageElement | HTMLCanvasElement, inputSize: 320 | 416 | 608, scoreThreshold = 0.2) =>
+      faceapi.detectAllFaces(input, new faceapi.TinyFaceDetectorOptions({ inputSize, scoreThreshold })).withFaceLandmarks(true).withFaceDescriptors();
+    let detections = (await Promise.all(inputSizes.map((inputSize) => detect(source, inputSize)))).flat();
     let selected = detections.length ? detections : null;
     if (!selected?.length) {
       // Legacy images can be contact sheets or full-body collages. Retry with
@@ -346,7 +347,7 @@ async function faceEmbedding(file: File, options: { inputSize?: 320 | 416 | 608;
           tiles.push(tile);
         }
       }
-      const tiledDetections = (await Promise.all(tiles.map((tile) => detect(tile, 0.15)))).flat();
+      const tiledDetections = (await Promise.all(tiles.flatMap((tile) => inputSizes.map((inputSize) => detect(tile, inputSize, 0.15))))).flat();
       selected = tiledDetections.length ? tiledDetections : null;
     }
     if (!selected?.length) throw new Error("Nenhum rosto detectado. Use uma foto frontal, nítida e bem iluminada.");
