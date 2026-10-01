@@ -317,9 +317,40 @@ async function faceEmbedding(file: File, options: { inputSize?: 320 | 416 | 608;
       context.drawImage(image, 0, 0, canvas.width, canvas.height);
       return canvas;
     })() : image;
-    const detections = await faceapi.detectAllFaces(source, new faceapi.TinyFaceDetectorOptions({ inputSize: options.inputSize ?? 608, scoreThreshold: 0.2 })).withFaceLandmarks(true).withFaceDescriptors();
-    if (!detections.length) throw new Error("Nenhum rosto detectado. Use uma foto frontal, nítida e bem iluminada.");
-    const largest = detections.reduce((a, b) => a.detection.box.width * a.detection.box.height >= b.detection.box.width * b.detection.box.height ? a : b);
+    const detectorOptions = new faceapi.TinyFaceDetectorOptions({ inputSize: options.inputSize ?? 608, scoreThreshold: 0.2 });
+    const detect = async (input: HTMLImageElement | HTMLCanvasElement, scoreThreshold = detectorOptions.scoreThreshold) =>
+      faceapi.detectAllFaces(input, new faceapi.TinyFaceDetectorOptions({ inputSize: options.inputSize ?? 608, scoreThreshold })).withFaceLandmarks(true).withFaceDescriptors();
+    let detections = await detect(source);
+    let selected = detections.length ? detections : null;
+    if (!selected?.length) {
+      // Legacy images can be contact sheets or full-body collages. Retry with
+      // overlapping tiles so a small face is not lost in the full frame.
+      const tiles: HTMLCanvasElement[] = [];
+      const columns = 2;
+      const rows = 2;
+      const overlap = 0.12;
+      for (let row = 0; row < rows; row += 1) {
+        for (let column = 0; column < columns; column += 1) {
+          const tileWidth = width / columns;
+          const tileHeight = height / rows;
+          const left = Math.max(0, column * tileWidth - tileWidth * overlap);
+          const top = Math.max(0, row * tileHeight - tileHeight * overlap);
+          const right = Math.min(width, (column + 1) * tileWidth + tileWidth * overlap);
+          const bottom = Math.min(height, (row + 1) * tileHeight + tileHeight * overlap);
+          const tile = document.createElement("canvas");
+          tile.width = Math.max(1, Math.round(right - left));
+          tile.height = Math.max(1, Math.round(bottom - top));
+          const context = tile.getContext("2d");
+          if (!context) continue;
+          context.drawImage(image, left, top, right - left, bottom - top, 0, 0, tile.width, tile.height);
+          tiles.push(tile);
+        }
+      }
+      const tiledDetections = (await Promise.all(tiles.map((tile) => detect(tile, 0.15)))).flat();
+      selected = tiledDetections.length ? tiledDetections : null;
+    }
+    if (!selected?.length) throw new Error("Nenhum rosto detectado. Use uma foto frontal, nítida e bem iluminada.");
+    const largest = selected.reduce((a, b) => a.detection.box.width * a.detection.box.height >= b.detection.box.width * b.detection.box.height ? a : b);
     return Array.from(largest.descriptor);
   } finally { URL.revokeObjectURL(sourceUrl); }
 }
@@ -345,7 +376,7 @@ async function reindexMissingFaceEmbeddings(onProgress: (processed: number) => v
           if (!imageResponse.ok) return null;
           const blob = await imageResponse.blob();
           const file = new File([blob], item.originalName || `face-${item.id}.jpg`, { type: blob.type || "image/jpeg" });
-          const embedding = await safeFaceEmbedding(file, { inputSize: 416, maxDimension: 960 });
+          const embedding = await safeFaceEmbedding(file, { inputSize: 608, maxDimension: 1200 });
           return embedding ? { mediaId: item.id, embedding } : null;
         } catch {
           return null;
