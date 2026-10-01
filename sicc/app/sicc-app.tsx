@@ -350,8 +350,13 @@ async function faceEmbedding(file: File, options: { inputSize?: 320 | 416 | 608;
       selected = tiledDetections.length ? tiledDetections : null;
     }
     if (!selected?.length) throw new Error("Nenhum rosto detectado. Use uma foto frontal, nítida e bem iluminada.");
-    const largest = selected.reduce((a, b) => a.detection.box.width * a.detection.box.height >= b.detection.box.width * b.detection.box.height ? a : b);
-    return Array.from(largest.descriptor);
+    const best = selected.reduce((a, b) => {
+      if (b.detection.score !== a.detection.score) return b.detection.score > a.detection.score ? b : a;
+      const areaA = a.detection.box.width * a.detection.box.height;
+      const areaB = b.detection.box.width * b.detection.box.height;
+      return areaB > areaA ? b : a;
+    });
+    return Array.from(best.descriptor);
   } finally { URL.revokeObjectURL(sourceUrl); }
 }
 
