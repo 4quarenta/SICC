@@ -5,7 +5,7 @@ import SICCApp from "./sicc-app";
 import { apiFetch } from "./api-client";
 import { requireSupabase } from "./supabase-browser";
 
-type Operator = { id: string; name: string; warName: string; rank: string; email: string; role: "admin" | "operator"; invitedBy: string | null };
+type Operator = { id: string; name: string; warName: string; rank: string; email: string; role: "admin" | "operator"; invitedBy: string | null; mustChangePassword?: boolean };
 
 const RANKS = ["AL SD", "SD", "CB", "3º SGT", "2º SGT", "1º SGT", "ST", "CAD", "ASP OF", "2º TEN", "1º TEN", "CAP", "MAJ", "TEN CEL", "CEL"];
 
@@ -100,7 +100,7 @@ export default function Portal() {
       } finally {
         window.clearTimeout(timeout);
       }
-      const data = await response.json() as { id?: string; name?: string; warName?: string; rank?: string; email?: string; role?: "admin" | "operator"; invitedBy?: string | null; error?: string; access_token?: string; refresh_token?: string; expires_in?: number };
+      const data = await response.json() as { id?: string; name?: string; warName?: string; rank?: string; email?: string; role?: "admin" | "operator"; invitedBy?: string | null; mustChangePassword?: boolean; error?: string; access_token?: string; refresh_token?: string; expires_in?: number };
       if (!response.ok) { setMessage(data.error ?? "Não foi possível concluir."); setLoading(false); return; }
       if (data.access_token && data.refresh_token) {
         await requireSupabase().auth.setSession({ access_token: data.access_token, refresh_token: data.refresh_token });
@@ -117,6 +117,7 @@ export default function Portal() {
           email: data.email,
           role: data.role,
           invitedBy: data.invitedBy ?? null,
+          mustChangePassword: data.mustChangePassword ?? false,
         });
         setLoading(false);
         return;
@@ -129,7 +130,7 @@ export default function Portal() {
   }
 
   if (loading && !operator) return <main className="auth-shell"><div className="auth-card"><b>Carregando acesso seguro…</b></div></main>;
-  if (operator) return <SICCApp operator={operator} onLogout={async () => { await apiFetch("/api/auth/logout", { method: "POST" }); await requireSupabase().auth.signOut(); setOperator(null); setMode("login"); }} />;
+  if (operator) return <SICCApp operator={operator} onPasswordChanged={() => setOperator((current) => current ? { ...current, mustChangePassword: false } : current)} onLogout={async () => { await apiFetch("/api/auth/logout", { method: "POST" }); await requireSupabase().auth.signOut(); setOperator(null); setMode("login"); }} />;
 
   return <main className="auth-shell">
     <section className="auth-brand"><span className="brand-mark">SI</span><div><b>SICC</b><small>Sistema Integrado de Cadastro e Consulta</small></div></section>

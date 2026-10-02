@@ -5,10 +5,11 @@ import { ALERT_CATEGORIES, ALERT_PRIORITY_LABEL, ALERT_PRIORITY_ORDER, type Aler
 import { LOCALITIES } from "./localities";
 import { findCity, loadCities, loadNeighborhoods, loadStates, type LocalityCity, type LocalityNeighborhood, type LocalityState } from "./localities-api";
 import { apiFetch } from "./api-client";
+import PasswordChangeForm from "./password-change";
 import { parseInfosegText } from "./infoseg-parser";
 import { initOneSignal, logoutOneSignal, readOneSignalPermission, requestOneSignalPermission, type OneSignalSdk } from "./onesignal";
 
-type Operator = { id: string; name: string; warName: string; rank: string; email: string; role: "admin" | "operator"; invitedBy: string | null };
+type Operator = { id: string; name: string; warName: string; rank: string; email: string; role: "admin" | "operator"; invitedBy: string | null; mustChangePassword?: boolean };
 type InviteLink = { id: number; code: string; expiresAt: string; link: string; kind: "single" | "bulk"; revokedAt?: string | null; useCount?: number };
 type Status = "alive" | "dead";
 type CustodyStatus = "free" | "detained";
@@ -521,8 +522,8 @@ function LocalityFields({ value, onChange, includeNeighborhood = false, required
   </>;
 }
 
-export default function SICCApp({ operator, onLogout }: { operator: Operator; onLogout: () => Promise<void> }) {
-  const [view, setView] = useState<View>("search");
+export default function SICCApp({ operator, onLogout, onPasswordChanged }: { operator: Operator; onLogout: () => Promise<void>; onPasswordChanged: () => void }) {
+  const [view, setView] = useState<View>(operator.mustChangePassword ? "account" : "search");
   const [searchMode, setSearchMode] = useState<SearchMode>("text");
   const [query, setQuery] = useState("");
   const [submittedQuery, setSubmittedQuery] = useState("");
@@ -634,14 +635,16 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
   }
 
   useEffect(() => {
+    if (operator.mustChangePassword) return;
     let active = true;
     const refresh = () => { if (active) void refreshStoredInvites(); };
     refresh();
     const timer = window.setInterval(refresh, 30_000);
     return () => { active = false; window.clearInterval(timer); };
-  }, [operator.id]);
+  }, [operator.id, operator.mustChangePassword]);
 
   useEffect(() => {
+    if (operator.mustChangePassword) return;
     let active = true;
     void apiFetch("/api/people?count=1", { cache: "no-store" })
       .then(async (response) => {
@@ -650,9 +653,10 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
       })
       .catch(() => {});
     return () => { active = false; };
-  }, [operator.id]);
+  }, [operator.id, operator.mustChangePassword]);
 
   useEffect(() => {
+    if (operator.mustChangePassword) return;
     let active = true;
     const timer = window.setTimeout(() => {
       if (!active || faceIndexStartedRef.current) return;
@@ -662,7 +666,7 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
       });
     }, 10_000);
     return () => { active = false; window.clearTimeout(timer); };
-  }, [operator.id]);
+  }, [operator.id, operator.mustChangePassword]);
 
   useEffect(() => {
     const mediaQuery = window.matchMedia("(display-mode: standalone)");
@@ -690,6 +694,10 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
   }, []);
 
   useEffect(() => {
+    if (operator.mustChangePassword) {
+      setPushState("unavailable");
+      return;
+    }
     let active = true;
     setPushState("loading");
     void initOneSignal(operator.id)
@@ -703,7 +711,7 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
         if (active) setPushState("unavailable");
       });
     return () => { active = false; oneSignalRef.current = null; };
-  }, [operator.id]);
+  }, [operator.id, operator.mustChangePassword]);
 
   async function enableQtcNotifications() {
     const oneSignal = oneSignalRef.current;
@@ -737,6 +745,7 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
   }
 
   function navigate(next: View) {
+    if (operator.mustChangePassword && next !== "account") return;
     if (next === "register") {
       setRegisterDraft(blankRegisterDraft());
       setImportedApproaches([]);
@@ -1212,12 +1221,14 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
 
       <aside className="sidebar" aria-label="Navegação principal">
         <span className="nav-label">NAVEGAÇÃO</span>
-        <button className={view === "search" ? "active" : ""} onClick={() => navigate("search")}><i><NavIcon name="search" /></i>Consultar</button>
-        <button className={view === "alerts" ? "active" : ""} onClick={() => navigate("alerts")}><i>⚠</i>Alertas</button>
-        {operator.role === "admin" && <button className={view === "operators" ? "active" : ""} onClick={() => navigate("operators")}><i>♙</i>Operadores</button>}
-        {operator.role === "admin" && <button className={view === "records" ? "active" : ""} onClick={() => navigate("records")}><i>▤</i>Cadastros</button>}
+        {!operator.mustChangePassword && <>
+          <button className={view === "search" ? "active" : ""} onClick={() => navigate("search")}><i><NavIcon name="search" /></i>Consultar</button>
+          <button className={view === "alerts" ? "active" : ""} onClick={() => navigate("alerts")}><i>⚠</i>Alertas</button>
+          {operator.role === "admin" && <button className={view === "operators" ? "active" : ""} onClick={() => navigate("operators")}><i>♙</i>Operadores</button>}
+          {operator.role === "admin" && <button className={view === "records" ? "active" : ""} onClick={() => navigate("records")}><i>▤</i>Cadastros</button>}
+        </>}
         <button className={view === "account" ? "active" : ""} onClick={() => navigate("account")}><i><NavIcon name="account" /></i>Conta</button>
-        <div className="side-note">Uso restrito<br /><small>Ações monitoradas</small></div>
+        {!operator.mustChangePassword && <div className="side-note">Uso restrito<br /><small>Ações monitoradas</small></div>}
       </aside>
 
       <main className={`content view-${view}`}>
@@ -1297,6 +1308,9 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
               <div><dt>Nível da conta</dt><dd>{operator.role === "admin" ? "Administrador" : "Operador"}</dd></div>
               <div><dt>Convidado por</dt><dd>{invitedByLabel(operator.invitedBy)}</dd></div>
             </dl>
+            {operator.mustChangePassword && <div className="warning"><b>Troca de senha necessária</b><small>Você entrou com uma senha temporária. Defina sua senha pessoal aqui para liberar o acesso ao sistema.</small></div>}
+            <PasswordChangeForm onComplete={onPasswordChanged} />
+            {!operator.mustChangePassword && <>
             <div className="warning"><b>Uso pessoal e intransferível</b><small>As ações realizadas no sistema ficam vinculadas a este usuário.</small></div>
             <section className="install-app-card" aria-labelledby="install-app-title">
               <div className="install-app-icon" aria-hidden="true">＋</div>
@@ -1311,11 +1325,13 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
             <div className="invite-panel"><div><b>Convidar operador</b><small>O link expira em 8 horas e permite um único cadastro.</small></div><button className="secondary" disabled={loading || inviteGenerating || bulkInviteGenerating} onClick={() => void createInvite("single")}>{inviteGenerating ? <><span className="mini-loader" aria-hidden="true" /> Gerando link…</> : "Gerar link"}</button>{invite && <div className="invite-code"><strong>Link de uso único</strong><small>Expira em {formatDate(invite.expiresAt)}</small><button onClick={() => void copyInviteLink()}>{inviteCopyStatus === "copied" ? "Copiado ✓" : "Copiar link"}</button><code>{invite.link}</code>{inviteCopyStatus === "copied" && <span className="copy-status success">Link copiado.</span>}{inviteCopyStatus === "error" && <span className="copy-status error">Não foi possível copiar. Selecione o link manualmente.</span>}</div>}</div>
              {operator.role === "admin" && <div className="invite-panel bulk-invite-panel"><div><b>Link para vários cadastros</b><small>Exclusivo do administrador. Pode ser usado por várias pessoas até expirar ou ser revogado.</small></div><button className="secondary" disabled={loading || inviteGenerating || bulkInviteGenerating} onClick={() => void createInvite("bulk")}>{bulkInviteGenerating ? <><span className="mini-loader" aria-hidden="true" /> Gerando link…</> : "Gerar link reutilizável"}</button>{bulkInvite && <div className="invite-code"><strong>{bulkInvite.revokedAt ? "Link revogado" : "Link reutilizável ativo"}</strong><small>Expira em {formatDate(bulkInvite.expiresAt)} · Usado por {bulkInvite.useCount ?? 0} pessoa(s)</small><button disabled={Boolean(bulkInvite.revokedAt)} onClick={() => void copyInviteLink("bulk")}>{bulkInviteCopyStatus === "copied" ? "Copiado ✓" : "Copiar link"}</button><code>{bulkInvite.link}</code>{!bulkInvite.revokedAt && <button type="button" className="danger-outline" onClick={() => setBulkInviteConfirm(true)}>Revogar link</button>}{bulkInviteCopyStatus === "copied" && <span className="copy-status success">Link copiado.</span>}{bulkInviteCopyStatus === "error" && <span className="copy-status error">Não foi possível copiar. Selecione o link manualmente.</span>}</div>}{bulkInviteConfirm && <ConfirmModal title="Revogar link reutilizável?" message="Novos cadastros não poderão mais usar este link. Cadastros já concluídos permanecem ativos." confirmLabel="Revogar link" onCancel={() => setBulkInviteConfirm(false)} onConfirm={async () => { setBulkInviteConfirm(false); await revokeBulkInvite(); }} />}</div>}
              {activeInvites.filter((item) => item.id !== invite?.id && item.id !== bulkInvite?.id).length > 0 && <div className="invite-panel active-invites-panel"><div><b>Outros links ativos</b><small>Links permanecem disponíveis até expirar ou serem utilizados.</small></div>{activeInvites.filter((item) => item.id !== invite?.id && item.id !== bulkInvite?.id).map((item) => <div className="invite-code" key={item.id}><strong>{item.kind === "bulk" ? "Link reutilizável ativo" : "Link de uso único"}</strong><small>Expira em {formatDate(item.expiresAt)}{item.kind === "bulk" && item.useCount ? ` · ${item.useCount} uso(s)` : ""}</small><button onClick={() => void copySpecificInvite(item)}>Copiar link</button><code>{item.link}</code></div>)}</div>}
-             <button className="logout-button" onClick={() => setLogoutConfirm(true)}>Sair da conta</button>
+            <button className="logout-button" onClick={() => setLogoutConfirm(true)}>Sair da conta</button>
+            </>}
+            {operator.mustChangePassword && <button className="logout-button" onClick={() => void onLogout()}>Sair da conta</button>}
           </section>
         )}
 
-        {view === "operators" && operator.role === "admin" && <AdminList kind="operators" />}
+        {view === "operators" && operator.role === "admin" && <AdminList kind="operators" currentOperatorId={operator.id} />}
         {view === "records" && operator.role === "admin" && <AdminList kind="records" onEditRecord={(row) => void editAdminRecord(row)} />}
 
         {view === "register" && (
@@ -1400,11 +1416,13 @@ export default function SICCApp({ operator, onLogout }: { operator: Operator; on
         )}
       </main>
 
-      {!editPerson && <nav className="bottom-nav" aria-label="Navegação mobile">
-        <button className={view === "search" ? "active" : ""} onClick={() => navigate("search")}><i><NavIcon name="search" /></i><span>Consultar</span></button>
-        <button className={view === "alerts" ? "active" : ""} onClick={() => navigate("alerts")}><i>⚠</i><span>Alertas</span></button>
-        {operator.role === "admin" && <button className={view === "operators" ? "active" : ""} onClick={() => navigate("operators")}><i>♙</i><span>Operadores</span></button>}
-        {operator.role === "admin" && <button className={view === "records" ? "active" : ""} onClick={() => navigate("records")}><i>▤</i><span>Cadastros</span></button>}
+      {!editPerson && <nav className={`bottom-nav${operator.mustChangePassword ? " password-change-nav" : ""}`} aria-label="Navegação mobile">
+        {!operator.mustChangePassword && <>
+          <button className={view === "search" ? "active" : ""} onClick={() => navigate("search")}><i><NavIcon name="search" /></i><span>Consultar</span></button>
+          <button className={view === "alerts" ? "active" : ""} onClick={() => navigate("alerts")}><i>⚠</i><span>Alertas</span></button>
+          {operator.role === "admin" && <button className={view === "operators" ? "active" : ""} onClick={() => navigate("operators")}><i>♙</i><span>Operadores</span></button>}
+          {operator.role === "admin" && <button className={view === "records" ? "active" : ""} onClick={() => navigate("records")}><i>▤</i><span>Cadastros</span></button>}
+        </>}
         <button className={view === "account" ? "active" : ""} onClick={() => navigate("account")}><i><NavIcon name="account" /></i><span>Conta</span></button>
       </nav>}
 
@@ -1757,10 +1775,11 @@ function LegacyArchiveView() {
   </section>;
 }
 
-function AdminList({ kind, onEditRecord }: { kind: "operators" | "records"; onEditRecord?: (row: AdminRow) => void }) {
+function AdminList({ kind, onEditRecord, currentOperatorId }: { kind: "operators" | "records"; onEditRecord?: (row: AdminRow) => void; currentOperatorId?: string }) {
   const [rows, setRows] = useState<AdminRow[]>([]); const [page, setPage] = useState(1); const [total, setTotal] = useState(0); const [loading, setLoading] = useState(true);
   const [confirmRow, setConfirmRow] = useState<AdminRow | null>(null);
   const [roleChange, setRoleChange] = useState<AdminRow | null>(null);
+  const [passwordRow, setPasswordRow] = useState<AdminRow | null>(null);
   const [searchInput, setSearchInput] = useState(""); const [searchTerm, setSearchTerm] = useState("");
   function endpoint() { return `/api/admin/${kind}?page=${page}${kind === "operators" && searchTerm ? `&q=${encodeURIComponent(searchTerm)}` : ""}`; }
   async function load() { setLoading(true); const response = await apiFetch(endpoint()); const data = await response.json() as { rows?: AdminRow[]; total?: number }; setRows(data.rows ?? []); setTotal(data.total ?? 0); setLoading(false); }
@@ -1797,12 +1816,65 @@ function AdminList({ kind, onEditRecord }: { kind: "operators" | "records"; onEd
             row.invitedBy ? " · convidado por " + row.invitedBy : "",
           ].join("")
         : maskCpf(row.cpf ?? "") + " · cadastrado por " + createdBy;
-      return <article key={row.id}><div><b>{displayName}</b><small>{summary}</small></div><div className="admin-row-actions">{kind === "records" && <button type="button" className="admin-edit-button" onClick={() => onEditRecord?.(row)}>Editar</button>}{kind === "operators" && row.role !== "admin" && <button type="button" className="admin-role-button" onClick={() => setRoleChange(row)}>Promover a admin</button>}{!(kind === "operators" && row.role === "admin") && <button type="button" onClick={() => setConfirmRow(row)}>Apagar</button>}</div></article>;
+      return <article key={row.id}><div><b>{displayName}</b><small>{summary}</small></div><div className="admin-row-actions">{kind === "records" && <button type="button" className="admin-edit-button" onClick={() => onEditRecord?.(row)}>Editar</button>}{kind === "operators" && String(row.id) !== currentOperatorId && <button type="button" className="admin-password-button" onClick={() => setPasswordRow(row)}>Gerar temporária</button>}{kind === "operators" && row.role !== "admin" && <button type="button" className="admin-role-button" onClick={() => setRoleChange(row)}>Promover a admin</button>}{!(kind === "operators" && row.role === "admin") && <button type="button" onClick={() => setConfirmRow(row)}>Apagar</button>}</div></article>;
     })}</div>}
     <div className="pagination"><button disabled={page <= 1} onClick={() => setPage((value) => value - 1)}>Anterior</button><span>{page} de {pages}</span><button disabled={page >= pages} onClick={() => setPage((value) => value + 1)}>Próxima</button></div>
     {confirmRow && <ConfirmModal title={`Apagar ${kind === "operators" ? "operador" : "cadastro"}?`} message={`Esta ação removerá ${confirmRow.name || "este registro"} permanentemente.`} confirmLabel="Apagar" onCancel={() => setConfirmRow(null)} onConfirm={async () => { const row = confirmRow; setConfirmRow(null); await remove(row); }} />}
     {roleChange && <ConfirmModal title="Promover a administrador?" message={(roleChange.warName || roleChange.name || "Esta conta") + " passará a ter o nível administrador."} confirmLabel="Promover" onCancel={() => setRoleChange(null)} onConfirm={changeRole} />}
+    {passwordRow && <AdminPasswordModal row={passwordRow} onClose={() => setPasswordRow(null)} />}
   </section>;
+}
+
+function AdminPasswordModal({ row, onClose }: { row: AdminRow; onClose: () => void }) {
+  const [temporaryPassword, setTemporaryPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [feedback, setFeedback] = useState<{ kind: "success" | "error"; text: string } | null>(null);
+  const name = [rankLabel(row.rank), row.warName || row.name].filter(Boolean).join(" ") || row.email || "operador";
+
+  async function generateTemporary() {
+    setBusy(true);
+    setFeedback(null);
+    setTemporaryPassword("");
+    try {
+      const response = await apiFetch(`/api/admin/operators/password?id=${encodeURIComponent(String(row.id))}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ generateTemporary: true }),
+        cache: "no-store",
+      });
+      const data = await response.json() as { temporaryPassword?: string; error?: string };
+      if (!response.ok || !data.temporaryPassword) throw new Error(data.error ?? "Não foi possível gerar a senha temporária.");
+      setTemporaryPassword(data.temporaryPassword);
+      setFeedback({ kind: "success", text: "A senha foi redefinida. Copie e entregue ao operador por um canal seguro; ele deverá alterá-la no perfil." });
+    } catch (error) {
+      setFeedback({ kind: "error", text: error instanceof Error ? error.message : "Não foi possível gerar a senha temporária." });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function copyTemporary() {
+    try {
+      await navigator.clipboard.writeText(temporaryPassword);
+      setFeedback({ kind: "success", text: "Senha temporária copiada. Ela não será armazenada nesta tela após fechá-la." });
+    } catch {
+      setFeedback({ kind: "error", text: "Não foi possível copiar. Selecione a senha exibida." });
+    }
+  }
+
+  return <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}>
+    <section className="confirm-modal password-admin-modal" role="dialog" aria-modal="true" aria-labelledby="admin-password-title">
+      <button type="button" className="close" onClick={onClose} aria-label="Fechar" disabled={busy}>×</button>
+      <span className="password-modal-icon" aria-hidden="true">⌑</span>
+      <h2 id="admin-password-title">Gerar senha temporária</h2>
+      <p className="password-modal-target">{name}{row.email ? ` · ${row.email}` : ""}</p>
+      <p>Isso substituirá a senha atual. O operador usará a temporária para entrar e será levado ao perfil para definir sua senha pessoal antes de continuar.</p>
+      {!temporaryPassword && <div className="temporary-password-action"><span>A senha será exibida uma vez nesta janela.</span><button type="button" className="secondary" onClick={() => void generateTemporary()} disabled={busy}>{busy ? "Gerando…" : "Gerar temporária"}</button></div>}
+      {temporaryPassword && <div className="temporary-password-value"><strong>Senha temporária — exibida uma vez</strong><code>{temporaryPassword}</code><button type="button" className="secondary" onClick={() => void copyTemporary()}>Copiar senha</button></div>}
+      {feedback && <p className={`password-feedback ${feedback.kind}`} role="status">{feedback.text}</p>}
+      <div className="confirm-actions"><button type="button" className="secondary" onClick={onClose} disabled={busy}>Fechar</button></div>
+    </section>
+  </div>;
 }
 
 function uniqueMedia(items: Media[] | undefined) {

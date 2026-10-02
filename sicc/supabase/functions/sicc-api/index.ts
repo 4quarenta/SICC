@@ -232,6 +232,7 @@ async function profile(userId: string) {
 async function operatorContext(req: Request, admin = false) {
   const user = await authenticatedUser(req);
   if (!user) return { response: fail("Sessão inválida ou expirada.", 401) } as const;
+  if (user.app_metadata?.must_change_password === true) return { response: fail("Altere sua senha no perfil antes de continuar.", 403) } as const;
   const current = await profile(user.id);
   if (!current || (admin && current.role !== "admin")) return { response: fail("Acesso não autorizado.", 403) } as const;
   return { user, current } as const;
@@ -245,7 +246,7 @@ async function operatorPayload(user: User, current: { user_id: string; war_name:
       ? [inviter.rank, inviter.war_name].filter(Boolean).join(" ")
       : "Operador não localizado";
   }
-  return { id: user.id, name: current.war_name, warName: current.war_name, rank: current.rank, email: user.email ?? "", role: current.role, invitedBy };
+  return { id: user.id, name: current.war_name, warName: current.war_name, rank: current.rank, email: user.email ?? "", role: current.role, invitedBy, mustChangePassword: user.app_metadata?.must_change_password === true };
 }
 
 async function findBootstrapInvite(token: string) {
@@ -377,6 +378,23 @@ async function handleAuth(path: string, req: Request) {
     }
     const current = await profile(user.id);
     return json({ operator: current ? await operatorPayload(user, current) : null, bootstrapAllowed: false });
+  }
+  if (path === "/auth/change-password" && req.method === "POST") {
+    const user = await authenticatedUser(req);
+    if (!user || !user.email) return fail("Sessão inválida ou expirada.", 401);
+    const body = await bodyJson(req);
+    const currentPassword = String(body.currentPassword ?? "");
+    const newPassword = String(body.newPassword ?? "");
+    if (newPassword.length < 8 || newPassword.length > 128) return fail("A nova senha deve ter entre 8 e 128 caracteres.", 400);
+    if (!currentPassword || currentPassword === newPassword) return fail("Informe a senha atual e escolha uma senha diferente.", 400);
+
+    const client = createClient(supabaseUrl, anonKey, { auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false } });
+    const { data: verified, error: verifyError } = await client.auth.signInWithPassword({ email: user.email, password: currentPassword });
+    if (verifyError || verified.user?.id !== user.id) return fail("A senha atual está incorreta.", 401);
+    const appMetadata = { ...(verified.user.app_metadata ?? {}), must_change_password: false };
+    const { error } = await api.auth.admin.updateUserById(user.id, { password: newPassword, app_metadata: appMetadata });
+    if (error) return fail(error.message, 400);
+    return json({ updated: true, mustChangePassword: false });
   }
   if (path === "/auth/logout" && req.method === "POST") return json({ ok: true });
   if (path === "/auth/login" && req.method === "POST") {
@@ -925,6 +943,24 @@ async function handleData(path: string, req: Request) {
     if (!target) return fail("Operador não encontrado.", 404);
     const { error } = await api.from("operator_profiles").update({ role }).eq("user_id", targetId);
     return error ? fail(error.message, 400) : json({ updated: true, role });
+  }
+  if (path === "/admin/operators/password" && req.method === "POST") {
+    const targetId = new URL(req.url).searchParams.get("id");
+    if (!targetId || targetId === user.id) return fail("Selecione outro operador para redefinir a senha.", 400);
+    const { data: target, error: targetError } = await api.from("operator_profiles").select("user_id").eq("user_id", targetId).maybeSingle();
+    if (targetError) return fail(targetError.message, 500);
+    if (!target) return fail("Operador não encontrado.", 404);
+
+    const body = await bodyJson(req);
+    if (body.generateTemporary !== true) return fail("Esta ação permite somente gerar uma senha temporária para outro operador.", 400);
+    const temporaryPassword = Array.from(crypto.getRandomValues(new Uint8Array(24)), (byte) => byte.toString(16).padStart(2, "0")).join("");
+
+    const { data: authTarget, error: authTargetError } = await api.auth.admin.getUserById(targetId);
+    if (authTargetError || !authTarget.user) return fail(authTargetError?.message ?? "Operador não encontrado.", 404);
+    const appMetadata = { ...(authTarget.user.app_metadata ?? {}), must_change_password: true };
+    const { error } = await api.auth.admin.updateUserById(targetId, { password: temporaryPassword, app_metadata: appMetadata });
+    if (error) return fail(error.message, 400);
+    return json({ updated: true, temporaryPassword });
   }
   if (path === "/admin/operators" && req.method === "DELETE") {
     const id = new URL(req.url).searchParams.get("id");
