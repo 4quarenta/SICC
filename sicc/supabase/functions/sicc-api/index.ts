@@ -505,6 +505,26 @@ async function handleData(path: string, req: Request) {
   const context = await operatorContext(req, adminOnly);
   if ("response" in context) return context.response;
   const { user, current } = context;
+  if (path === "/media-url" && req.method === "GET") {
+    const params = new URL(req.url).searchParams;
+    const kind = params.get("kind");
+    const rawId = params.get("id") ?? "";
+    let objectKey: string | null = null;
+    if ((kind === "person" || kind === "alert") && /^\d+$/.test(rawId)) {
+      const table = kind === "person" ? "person_media" : "qtc_alert_media";
+      const { data, error } = await api.from(table).select("object_key").eq("id", Number(rawId)).maybeSingle();
+      if (error) return fail("Não foi possível atualizar o acesso à imagem.", 500);
+      objectKey = data?.object_key ?? null;
+    } else if (kind === "legacy" && rawId.length > 0 && rawId.length <= 200) {
+      const { data, error } = await api.from("legacy_source_records").select("image_object_key").eq("record_id", rawId).maybeSingle();
+      if (error) return fail("Não foi possível atualizar o acesso à imagem.", 500);
+      objectKey = data?.image_object_key ?? null;
+    } else {
+      return fail("Imagem não localizada.", 404);
+    }
+    const url = await signedUrl(objectKey);
+    return url ? json({ url }) : fail("Imagem não localizada.", 404);
+  }
   if (path === "/factions" && req.method === "GET") {
     const { data, error } = await api.from("factions").select("id,name").order("name");
     return error ? fail(error.message, 500) : json({ factions: data ?? [] });

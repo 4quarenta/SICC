@@ -20,6 +20,34 @@ type Approach = { id: number; occurredAt: string | null; latitude: string | null
 type Media = { id: number; kind: "face" | "face_front" | "face_profile" | "tattoo" | "legacy"; originalName: string; description: string | null; capturedAt: string | null; url: string; sha256?: string | null };
 type LegacyDocument = { sourceRecordId: string; associationScope: "individual_source" | "shared_document_text"; url: string | null };
 type LegacySource = { recordId: string; sourceOrder: number; recordType: "individual" | "shared_image"; originalName: string | null; displayName: string | null; sourcePersonCount: number; imageUrl: string | null };
+type SignedImageKind = "person" | "alert" | "legacy";
+
+function SignedImage({ src, kind, id, alt, className, loading = "lazy", onClick }: { src: string; kind: SignedImageKind; id: number | string; alt: string; className?: string; loading?: "eager" | "lazy"; onClick?: () => void }) {
+  const [imageUrl, setImageUrl] = useState(src);
+  const refreshed = useRef(false);
+  const originalUrl = useRef(src);
+  useEffect(() => {
+    if (originalUrl.current === src) return;
+    originalUrl.current = src;
+    setImageUrl(src);
+    refreshed.current = false;
+  }, [src]);
+
+  async function refreshExpiredUrl() {
+    if (refreshed.current) return;
+    refreshed.current = true;
+    try {
+      const response = await apiFetch(`/api/media-url?kind=${kind}&id=${encodeURIComponent(String(id))}`, { cache: "no-store" });
+      const data = await response.json() as { url?: string };
+      if (response.ok && data.url) setImageUrl(data.url);
+    } catch {
+      // Avoid retry loops when the object is no longer available.
+    }
+  }
+
+  return <img src={imageUrl} alt={alt} className={className} loading={loading} decoding="async" onError={() => void refreshExpiredUrl()} onClick={onClick} />;
+}
+
 type Person = {
   id: number;
   fullName: string | null;
@@ -1686,7 +1714,7 @@ function AlertsView({ operator }: { operator: Operator }) {
 
 function AlertDetailsPage({ alert, saving, canDelete, onBack, onChangeStatus, onDelete }: { alert: AlertRecord; saving: boolean; canDelete: boolean; onBack: () => void; onChangeStatus: () => void; onDelete: () => void }) {
   const [lightbox, setLightbox] = useState<{ src: string; alt: string } | null>(null);
-  return <section className="alert-detail-page"><button type="button" className="alert-back" onClick={onBack}>‹ Voltar para os alertas</button><div className="alert-detail-hero"><div><span className={`priority-chip ${alert.priority}`}>{ALERT_PRIORITY_LABEL[alert.priority]}</span><h2>{alert.categoryLabel}</h2><p>{alert.municipality}{alert.neighborhood ? ` · ${alert.neighborhood}` : ""}</p></div><span className={`alert-status ${alert.status}`}>{alert.status === "resolved" ? "Resolvido" : alert.status === "expired" ? "Expirado" : "Em aberto"}</span></div><div className="alert-detail-sections"><section><h3>Ocorrência</h3><dl><div><dt>Data e hora</dt><dd>{formatDate(alert.occurredAt)}</dd></div><div><dt>Descrição</dt><dd className="preserve-lines">{alert.description}</dd></div></dl></section>{(alert.peopleInfo || alert.vehicleInfo) && <section><h3>Envolvidos</h3><dl>{alert.peopleInfo && <div><dt>Pessoas</dt><dd className="preserve-lines">{alert.peopleInfo}</dd></div>}{alert.vehicleInfo && <div><dt>Veículo</dt><dd className="preserve-lines">{alert.vehicleInfo}</dd></div>}</dl></section>}{alert.locationLink && <section><h3>Localização ou rastreio</h3><a className="alert-detail-link" href={alert.locationLink} target="_blank" rel="noreferrer">↗ Abrir link informado</a></section>}{alert.images.length > 0 && <section><h3>Imagens</h3><div className="alert-detail-images">{alert.images.map((image) => <figure key={image.id}><img src={image.url} alt={image.name} onClick={() => setLightbox({ src: image.url, alt: image.name })} /><figcaption>{image.name}</figcaption></figure>)}</div></section>}<section><h3>Registro</h3><dl><div><dt>Enviado por</dt><dd>{alert.createdByName}</dd></div><div><dt>Data e hora do envio</dt><dd>{formatDate(alert.createdAt)}</dd></div>{alert.status === "resolved" && <div><dt>Resolvido por</dt><dd>{alert.resolvedByName ? `${alert.resolvedByName} · ${formatDate(alert.resolvedAt)}` : "Não informado"}</dd></div>}</dl></section></div>{alert.status === "expired" ? <p className="alert-expired-note">Este QTC expirou após 5 dias sem resolução.</p> : <button type="button" className={alert.status === "resolved" ? "secondary alert-detail-action" : "primary alert-detail-action"} disabled={saving} onClick={onChangeStatus}>{alert.status === "resolved" ? "Reabrir QTC" : "Marcar como resolvido"}</button>}{canDelete && <button type="button" className="danger-outline alert-delete-action" disabled={saving} onClick={onDelete}>Apagar QTC</button>}{lightbox && <ImageLightbox src={lightbox.src} alt={lightbox.alt} onClose={() => setLightbox(null)} />}</section>;
+  return <section className="alert-detail-page"><button type="button" className="alert-back" onClick={onBack}>‹ Voltar para os alertas</button><div className="alert-detail-hero"><div><span className={`priority-chip ${alert.priority}`}>{ALERT_PRIORITY_LABEL[alert.priority]}</span><h2>{alert.categoryLabel}</h2><p>{alert.municipality}{alert.neighborhood ? ` · ${alert.neighborhood}` : ""}</p></div><span className={`alert-status ${alert.status}`}>{alert.status === "resolved" ? "Resolvido" : alert.status === "expired" ? "Expirado" : "Em aberto"}</span></div><div className="alert-detail-sections"><section><h3>Ocorrência</h3><dl><div><dt>Data e hora</dt><dd>{formatDate(alert.occurredAt)}</dd></div><div><dt>Descrição</dt><dd className="preserve-lines">{alert.description}</dd></div></dl></section>{(alert.peopleInfo || alert.vehicleInfo) && <section><h3>Envolvidos</h3><dl>{alert.peopleInfo && <div><dt>Pessoas</dt><dd className="preserve-lines">{alert.peopleInfo}</dd></div>}{alert.vehicleInfo && <div><dt>Veículo</dt><dd className="preserve-lines">{alert.vehicleInfo}</dd></div>}</dl></section>}{alert.locationLink && <section><h3>Localização ou rastreio</h3><a className="alert-detail-link" href={alert.locationLink} target="_blank" rel="noreferrer">↗ Abrir link informado</a></section>}{alert.images.length > 0 && <section><h3>Imagens</h3><div className="alert-detail-images">{alert.images.map((image) => <figure key={image.id}><SignedImage src={image.url} kind="alert" id={image.id} alt={image.name} onClick={() => setLightbox({ src: image.url, alt: image.name })} /><figcaption>{image.name}</figcaption></figure>)}</div></section>}<section><h3>Registro</h3><dl><div><dt>Enviado por</dt><dd>{alert.createdByName}</dd></div><div><dt>Data e hora do envio</dt><dd>{formatDate(alert.createdAt)}</dd></div>{alert.status === "resolved" && <div><dt>Resolvido por</dt><dd>{alert.resolvedByName ? `${alert.resolvedByName} · ${formatDate(alert.resolvedAt)}` : "Não informado"}</dd></div>}</dl></section></div>{alert.status === "expired" ? <p className="alert-expired-note">Este QTC expirou após 5 dias sem resolução.</p> : <button type="button" className={alert.status === "resolved" ? "secondary alert-detail-action" : "primary alert-detail-action"} disabled={saving} onClick={onChangeStatus}>{alert.status === "resolved" ? "Reabrir QTC" : "Marcar como resolvido"}</button>}{canDelete && <button type="button" className="danger-outline alert-delete-action" disabled={saving} onClick={onDelete}>Apagar QTC</button>}{lightbox && <ImageLightbox src={lightbox.src} alt={lightbox.alt} onClose={() => setLightbox(null)} />}</section>;
 }
 
 function ImageLightbox({ src, alt, onClose }: { src: string; alt: string; onClose: () => void }) {
@@ -1912,7 +1940,7 @@ function PersonList({ people, faceScores = {}, onSelect }: { people: Person[]; f
     const media = uniqueMedia(person.media);
     const face = media.find((item) => item.url && (item.kind === "face" || item.kind === "face_front" || item.kind === "face_profile")) ?? media.find((item) => item.url);
     return <button key={person.id} onClick={() => onSelect(person)}>
-      {face ? <img className="list-photo" src={face.url} alt="" /> : <span className="list-avatar">{initials(person.fullName)}</span>}
+      {face ? <SignedImage className="list-photo" src={face.url} kind="person" id={face.id} alt="" /> : <span className="list-avatar">{initials(person.fullName)}</span>}
       <span className="person-name"><b>{person.fullName || "Nome não identificado"}</b><small>{person.nickname ? `“${person.nickname}” · ` : ""}{maskCpf(person.cpf)}</small>{faceScores[person.id] !== undefined && <em>Similaridade facial: {faceScores[person.id].toFixed(1)}%</em>}<em>{formatDate(person.birthDate)}</em><em>{person.motherName || "Mãe não informada"}</em><span className="person-alerts">{person.factionName && <strong className="person-alert faction-alert">⚠ Faccionado: {person.factionName}</strong>}{person.seizedObjects?.length > 0 && <strong className="person-alert object-alert">⚠ Possui objeto apreendido</strong>}{person.notes?.trim() && <strong className="person-alert observation-alert">⚠ Possui observação</strong>}</span></span>
       <span className={`badge ${person.status}`}>{statusLabel[person.status]}</span><span className="arrow">›</span>
     </button>;
@@ -1929,7 +1957,7 @@ function PersonModal({ person, onClose, onApproach, onEdit, onDelete }: { person
       <section className="person-modal person-sheet" role="dialog" aria-modal="true" aria-labelledby="person-title" onClick={(event) => event.stopPropagation()}>
         <button className="close" onClick={onClose} aria-label="Fechar">×</button>
         <div className="person-hero">
-          {face ? <img src={face.url} alt={person.fullName ? `Foto frontal de ${person.fullName}` : "Imagem do registro"} className="zoomable-image" onClick={() => setLightbox({ src: face.url, alt: person.fullName ? `Foto frontal de ${person.fullName}` : "Imagem do registro" })} /> : <span>{initials(person.fullName)}</span>}
+          {face ? <SignedImage src={face.url} kind="person" id={face.id} alt={person.fullName ? `Foto frontal de ${person.fullName}` : "Imagem do registro"} className="zoomable-image" loading="eager" onClick={() => setLightbox({ src: face.url, alt: person.fullName ? `Foto frontal de ${person.fullName}` : "Imagem do registro" })} /> : <span>{initials(person.fullName)}</span>}
           <div><small>CADASTRO Nº {person.id}</small><h2 id="person-title">{person.fullName || "Nome não identificado"}</h2>{person.nickname && <p>Alcunha: <b>{person.nickname}</b></p>}<b className={`badge ${person.status}`}>{statusLabel[person.status]}</b></div>
         </div>
         <div className="sheet-actions">
@@ -1947,13 +1975,13 @@ function PersonModal({ person, onClose, onApproach, onEdit, onDelete }: { person
         </dl>
 
         {media.length > 0 && <SheetSection title="Imagens de identificação" count={media.length}>
-          <div className="media-gallery">{media.filter((item) => item.url).map((item) => <figure key={item.id}><img src={item.url} alt={mediaLabel[item.kind]} onClick={() => setLightbox({ src: item.url, alt: mediaLabel[item.kind] })} /><figcaption>{mediaLabel[item.kind]}<small>{item.capturedAt ? formatDate(item.capturedAt) : "Data não informada"}</small></figcaption></figure>)}</div>
+          <div className="media-gallery">{media.filter((item) => item.url).map((item) => <figure key={item.id}><SignedImage src={item.url} kind="person" id={item.id} alt={mediaLabel[item.kind]} onClick={() => setLightbox({ src: item.url, alt: mediaLabel[item.kind] })} /><figcaption>{mediaLabel[item.kind]}<small>{item.capturedAt ? formatDate(item.capturedAt) : "Data não informada"}</small></figcaption></figure>)}</div>
         </SheetSection>}
 
         {person.legacyDocuments?.length > 0 && <SheetSection title="Imagens do acervo legado" count={person.legacyDocuments.length}>
           <div className="media-gallery">{person.legacyDocuments.filter((item) => item.url).map((item) => {
             const label = item.associationScope === "shared_document_text" ? "Documento compartilhado; vínculo por texto, sem identificação facial" : "Imagem do registro de origem";
-            return <figure key={item.sourceRecordId}><img src={item.url!} alt={label} onClick={() => setLightbox({ src: item.url!, alt: label })} /><figcaption>{label}</figcaption></figure>;
+            return <figure key={item.sourceRecordId}><SignedImage src={item.url!} kind="legacy" id={item.sourceRecordId} alt={label} onClick={() => setLightbox({ src: item.url!, alt: label })} /><figcaption>{label}</figcaption></figure>;
           })}</div>
         </SheetSection>}
 
@@ -2096,7 +2124,7 @@ function EditPersonModal({
             <div className="existing-media">
               {mediaItems.map((item) => (
                 <figure key={item.id}>
-                  <img src={item.url} alt={mediaLabel[item.kind]} />
+                  <SignedImage src={item.url} kind="person" id={item.id} alt={mediaLabel[item.kind]} />
                   <figcaption>{mediaLabel[item.kind]}<small>{item.capturedAt ? formatDate(item.capturedAt) : "Data não informada"}</small><button type="button" className="remove-media" onClick={() => setMediaToRemove(item)}>Apagar foto</button></figcaption>
                 </figure>
               ))}
