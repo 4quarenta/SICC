@@ -620,14 +620,20 @@ async function handleData(path: string, req: Request) {
   if (path === "/people" && req.method === "POST") {
     const form = await req.formData();
     const cpf = clean(form.get("cpf")).replace(/\D/g, "");
-    if (cpf.length !== 11) return fail("Informe um CPF válido com 11 dígitos.", 400);
-    const { data: existingCpf, error: cpfError } = await api.from("people").select("id,full_name").eq("cpf", cpf).maybeSingle();
-    if (cpfError) return fail("Não foi possível validar o CPF.", 500);
-    if (existingCpf) return fail(`Já existe um cadastro para este CPF: ${existingCpf.full_name}.`, 409);
+    const fullName = clean(form.get("fullName"));
+    const faceFiles = form.getAll("facePhotos").filter((item): item is File => item instanceof File && item.size > 0);
+    if (fullName.length < 3) return fail("Informe o nome do indivíduo com pelo menos 3 caracteres.", 400);
+    if (cpf && cpf.length !== 11) return fail("Informe um CPF válido com 11 dígitos ou deixe o campo vazio.", 400);
+    if (!faceFiles.length) return fail("Envie pelo menos uma foto do indivíduo.", 400);
+    if (cpf) {
+      const { data: existingCpf, error: cpfError } = await api.from("people").select("id,full_name").eq("cpf", cpf).maybeSingle();
+      if (cpfError) return fail("Não foi possível validar o CPF.", 500);
+      if (existingCpf) return fail(`Já existe um cadastro para este CPF: ${existingCpf.full_name}.`, 409);
+    }
     const faction = await resolveFactionId(form);
     if (faction.error) return fail(faction.error, 400);
     const now = new Date().toISOString();
-    const { data: person, error } = await api.from("people").insert({ full_name: clean(form.get("fullName")), nickname: clean(form.get("nickname")) || null, cpf, birth_date: clean(form.get("birthDate")) || null, mother_name: clean(form.get("motherName")) || null, tattoo_description: clean(form.get("tattooDescription")) || null, city: clean(form.get("city")) || null, state: clean(form.get("state")) || null, status: clean(form.get("status")) === "dead" ? "dead" : "alive", custody_status: clean(form.get("custodyStatus")) === "detained" ? "detained" : "free", notes: clean(form.get("notes")) || null, faction_id: faction.id, created_by: user.id, created_at: now, updated_at: now }).select("id").single();
+    const { data: person, error } = await api.from("people").insert({ full_name: fullName, nickname: clean(form.get("nickname")) || null, cpf: cpf || null, birth_date: clean(form.get("birthDate")) || null, mother_name: clean(form.get("motherName")) || null, tattoo_description: clean(form.get("tattooDescription")) || null, city: clean(form.get("city")) || null, state: clean(form.get("state")) || null, status: clean(form.get("status")) === "dead" ? "dead" : "alive", custody_status: clean(form.get("custodyStatus")) === "detained" ? "detained" : "free", notes: clean(form.get("notes")) || null, faction_id: faction.id, created_by: user.id, created_at: now, updated_at: now }).select("id").single();
     if (error || !person) return fail(error?.message ?? "Não foi possível salvar o cadastro.", 400);
     try {
       const addresses = JSON.parse(String(form.get("addresses") ?? "[]")) as Array<Record<string, string>>;
@@ -698,7 +704,7 @@ async function handleData(path: string, req: Request) {
     const fullName = clean(form.get("fullName"));
     const { data: existingPerson, error: personError } = await api.from("people").select("legacy_source_record_id").eq("id", personId).single();
     if (personError) return fail("Cadastro não encontrado.", 404);
-    if ((cpf && cpf.length !== 11) || (!cpf && !existingPerson?.legacy_source_record_id)) return fail("Informe um CPF válido com 11 dígitos.", 400);
+    if (cpf && cpf.length !== 11) return fail("Informe um CPF válido com 11 dígitos ou deixe o campo vazio.", 400);
     if (!fullName && !(existingPerson?.legacy_source_record_id && cpf)) return fail("Informe um nome completo.", 400);
     if (cpf) {
       const { data: existingCpf, error: cpfError } = await api.from("people").select("id,full_name").eq("cpf", cpf).neq("id", personId).maybeSingle();
@@ -854,12 +860,17 @@ async function handleData(path: string, req: Request) {
     return error ? fail(error.message, 400) : json({ deleted: true });
   }
   if (path === "/admin/records" && req.method === "GET") {
-    const page = Math.max(1, Number(new URL(req.url).searchParams.get("page") ?? 1) || 1);
+    const params = new URL(req.url).searchParams;
+    const page = Math.max(1, Number(params.get("page") ?? 1) || 1);
+    const sort = params.get("sort");
+    const orderBy = sort === "alphabetical" ? "full_name" : "created_at";
+    const ascending = sort === "oldest" || sort === "alphabetical";
     const from = (page - 1) * 10;
     const to = from + 9;
     const { data, error, count } = await api.from("people")
       .select("id,full_name,cpf,status,created_by,created_at,legacy_import_manifest_sha256", { count: "exact" })
-      .order("created_at", { ascending: false })
+      .order(orderBy, { ascending })
+      .order("id", { ascending: true })
       .range(from, to);
     if (error) return fail(error.message, 500);
     const creatorIds = [...new Set((data ?? []).map((row) => row.created_by).filter(Boolean))] as string[];

@@ -1022,8 +1022,19 @@ export default function SICCApp({ operator, onLogout, onPasswordChanged }: { ope
     setRegisterNotice(null);
     try {
       const form = new FormData(event.currentTarget);
+      const fullName = String(form.get("fullName") ?? "").trim();
       const faceFiles = form.getAll("facePhotos").filter((item): item is File => item instanceof File && item.size > 0);
       const tattooFiles = form.getAll("tattoos").filter((item): item is File => item instanceof File && item.size > 0);
+      if (fullName.length < 3) {
+        showRegisterNotice("error", "Informe o nome do indivíduo com pelo menos 3 caracteres.");
+        setLoading(false);
+        return;
+      }
+      if (!faceFiles.length) {
+        showRegisterNotice("error", "Selecione pelo menos uma foto do indivíduo para salvar o cadastro.");
+        setLoading(false);
+        return;
+      }
       const imageFiles = [...faceFiles, ...tattooFiles];
       // Compact aggressively for mobile uploads: about 240 KB for one image,
       // decreasing to a 45 KB floor when several images are selected.
@@ -1340,7 +1351,7 @@ export default function SICCApp({ operator, onLogout, onPasswordChanged }: { ope
             <FormSection title="Identificação" subtitle="Dados civis e operacionais">
               <div className="form-grid">
                 <label className="wide">Nome completo *<input name="fullName" required minLength={3} value={registerDraft.fullName} onChange={(event) => setRegisterDraft((draft) => ({ ...draft, fullName: event.target.value }))} placeholder="Informe o nome civil" /></label>
-                <label>CPF *<input name="cpf" required inputMode="numeric" value={registerDraft.cpf} onChange={(event) => setRegisterDraft((draft) => ({ ...draft, cpf: event.target.value }))} placeholder="000.000.000-00" /></label>
+                <label>CPF<input name="cpf" inputMode="numeric" value={registerDraft.cpf} onChange={(event) => setRegisterDraft((draft) => ({ ...draft, cpf: event.target.value }))} placeholder="Opcional · 000.000.000-00" /></label>
                 <label>Alcunha<input name="nickname" value={registerDraft.nickname} onChange={(event) => setRegisterDraft((draft) => ({ ...draft, nickname: event.target.value }))} placeholder="Nome pelo qual é conhecido" /></label>
                 <label>Data de nascimento<input name="birthDate" type="date" value={registerDraft.birthDate} onChange={(event) => setRegisterDraft((draft) => ({ ...draft, birthDate: event.target.value }))} /></label>
                 <label>Nome da mãe<input name="motherName" value={registerDraft.motherName} onChange={(event) => setRegisterDraft((draft) => ({ ...draft, motherName: event.target.value }))} placeholder="Auxilia a confirmação de identidade" /></label>
@@ -1356,7 +1367,7 @@ export default function SICCApp({ operator, onLogout, onPasswordChanged }: { ope
 
             <FormSection title="Imagens de identificação" subtitle="As imagens serão compactadas automaticamente antes do envio">
               <div className="photo-grid">
-                <div className="photo-record"><PhotoInput name="facePhotos" label="Fotos do rosto" multiple /><label>Data das fotos *<input name="facePhotoDate" type="date" defaultValue={currentBrasiliaDate()} required /></label></div>
+                <div className="photo-record"><PhotoInput name="facePhotos" label="Foto do indivíduo *" multiple /><label>Data das fotos *<input name="facePhotoDate" type="date" defaultValue={currentBrasiliaDate()} required /></label></div>
                 <div className="photo-record"><PhotoInput name="tattoos" label="Fotos de tatuagens" multiple /><label>Data das fotos<input name="tattooPhotoDate" type="date" defaultValue={currentBrasiliaDate()} /></label></div>
               </div>
               <label className="wide">Descrição de tatuagens<textarea name="tattooDescription" rows={3} value={registerDraft.tattooDescription} onChange={(event) => setRegisterDraft((draft) => ({ ...draft, tattooDescription: event.target.value }))} placeholder="Ex.: coroa com nome Miguel no pescoço" /></label>
@@ -1731,6 +1742,7 @@ function PhotoInput({ name, label, required, multiple }: { name: string; label: 
 }
 
 type AdminRow = { id: number | string; name?: string; warName?: string; rank?: string; email?: string; role?: string; invitedBy?: string | null; cpf?: string; createdBy?: string | null; createdByName?: string | null; createdAt: string };
+type AdminRecordSort = "newest" | "oldest" | "alphabetical";
 function LegacyArchiveView() {
   const [input, setInput] = useState("");
   const [term, setTerm] = useState("");
@@ -1781,7 +1793,13 @@ function AdminList({ kind, onEditRecord, currentOperatorId }: { kind: "operators
   const [roleChange, setRoleChange] = useState<AdminRow | null>(null);
   const [passwordRow, setPasswordRow] = useState<AdminRow | null>(null);
   const [searchInput, setSearchInput] = useState(""); const [searchTerm, setSearchTerm] = useState("");
-  function endpoint() { return `/api/admin/${kind}?page=${page}${kind === "operators" && searchTerm ? `&q=${encodeURIComponent(searchTerm)}` : ""}`; }
+  const [recordSort, setRecordSort] = useState<AdminRecordSort>("newest");
+  function endpoint() {
+    const params = new URLSearchParams({ page: String(page) });
+    if (kind === "operators" && searchTerm) params.set("q", searchTerm);
+    if (kind === "records") params.set("sort", recordSort);
+    return `/api/admin/${kind}?${params.toString()}`;
+  }
   async function load() { setLoading(true); const response = await apiFetch(endpoint()); const data = await response.json() as { rows?: AdminRow[]; total?: number }; setRows(data.rows ?? []); setTotal(data.total ?? 0); setLoading(false); }
   useEffect(() => {
     let active = true;
@@ -1790,7 +1808,7 @@ function AdminList({ kind, onEditRecord, currentOperatorId }: { kind: "operators
       setRows(data.rows ?? []); setTotal(data.total ?? 0); setLoading(false);
     }).catch(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [page, kind, searchTerm]);
+  }, [page, kind, searchTerm, recordSort]);
   async function remove(row: AdminRow) {
     const response = kind === "operators" ? await apiFetch(`/api/admin/operators?id=${encodeURIComponent(String(row.id))}`, { method: "DELETE" }) : await apiFetch(`/api/people/${row.id}`, { method: "DELETE" });
     if (response.ok) await load();
@@ -1804,6 +1822,7 @@ function AdminList({ kind, onEditRecord, currentOperatorId }: { kind: "operators
   const pages = Math.max(1, Math.ceil(total / 10));
   return <section className="panel admin-list"><div className="panel-title"><h2>{kind === "operators" ? "Contas cadastradas" : "Pessoas cadastradas"}</h2><span>{total} no total</span></div>
     {kind === "operators" && <form className="admin-search" onSubmit={(event) => { event.preventDefault(); setPage(1); setSearchTerm(searchInput.trim()); }}><label htmlFor="operator-search">Pesquisar operador</label><div className="search-row"><div className="input-wrap"><span aria-hidden="true">⌕</span><input id="operator-search" value={searchInput} onChange={(event) => setSearchInput(event.target.value)} maxLength={80} placeholder="Nome, posto, e-mail ou perfil" /></div><button type="submit" className="primary" disabled={loading}>Buscar</button>{searchTerm && <button type="button" className="secondary" onClick={() => { setSearchInput(""); setPage(1); setSearchTerm(""); }}>Limpar</button>}</div>{searchTerm && <small className="admin-search-hint">Filtro aplicado: {searchTerm}</small>}</form>}
+    {kind === "records" && <div className="admin-sort"><label htmlFor="admin-record-sort">Ordenar cadastros</label><select id="admin-record-sort" value={recordSort} onChange={(event) => { setPage(1); setRecordSort(event.target.value as AdminRecordSort); }}><option value="newest">Mais novos</option><option value="oldest">Mais antigos</option><option value="alphabetical">Ordem alfabética (A–Z)</option></select></div>}
     {loading ? <p>Carregando…</p> : <div className="admin-rows">{rows.map((row) => {
       const displayName = kind === "operators"
         ? [rankLabel(row.rank), row.warName || row.name].filter((value) => Boolean(value && value.trim())).join(" ") || "Nome não informado"
@@ -2005,7 +2024,7 @@ function EditPersonModal({
       const cpfDigits = String(form.get("cpf") ?? "").replace(/\D/g, "");
       if (fullName && fullName.length < 3) throw new Error("Informe o nome completo.");
       if (!fullName && !(person.legacySourceRecordId && cpfDigits.length === 11)) throw new Error("Informe o nome completo ou um CPF válido do acervo.");
-      if ((cpfDigits && cpfDigits.length !== 11) || (!cpfDigits && !person.legacySourceRecordId)) throw new Error("Informe um CPF válido com 11 dígitos.");
+      if (cpfDigits && cpfDigits.length !== 11) throw new Error("Informe um CPF válido com 11 dígitos ou deixe o campo vazio.");
       if (editFactionAffiliated && !editFactionChoice) throw new Error("Selecione uma facção ou escolha adicionar uma nova.");
       if (editFactionAffiliated && editFactionChoice === "new" && editNewFactionName.trim().length < 2) throw new Error("Informe o nome da nova facção.");
       const editFaceFiles = form.getAll("facePhotos").filter((item): item is File => item instanceof File && item.size > 0);
@@ -2058,7 +2077,7 @@ function EditPersonModal({
         <FormSection title="Identificação" subtitle="Dados civis e operacionais">
           <div className="form-grid">
             <label className="wide">Nome completo{person.legacySourceRecordId && person.cpf ? "" : " *"}<input name="fullName" required={!person.legacySourceRecordId || !person.cpf} minLength={3} defaultValue={person.fullName ?? ""} /></label>
-            <label>CPF{person.legacySourceRecordId ? "" : " *"}<input name="cpf" required={!person.legacySourceRecordId} inputMode="numeric" defaultValue={person.cpf ? maskCpf(person.cpf) : ""} /></label>
+            <label>CPF<input name="cpf" inputMode="numeric" defaultValue={person.cpf ? maskCpf(person.cpf) : ""} /></label>
             <label>Alcunha<input name="nickname" defaultValue={person.nickname ?? ""} /></label>
             <label>Data de nascimento<input name="birthDate" type="date" defaultValue={person.birthDate ?? ""} /></label>
             <label>Nome da mãe<input name="motherName" defaultValue={person.motherName ?? ""} /></label>
