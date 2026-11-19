@@ -122,6 +122,23 @@ jobs:
         run: npm run test:parser
       - name: Build static frontend
         run: npm run build:pages
+      - name: Redirect legacy Pages URL to Cloudflare
+        shell: python
+        run: |
+          from pathlib import Path
+
+          page = '''<!doctype html>
+          <html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>SICC mudou de endereço</title>
+          <script>
+          const base = "https://sicc-prod.john-alleff01.workers.dev";
+          const suffix = window.location.pathname.replace(/^\\/SICC(?=\\/|$)/i, "");
+          const target = new URL(suffix || "/", base);
+          target.search = window.location.search;
+          target.hash = window.location.hash;
+          window.location.replace(target.href);
+          </script></head><body><p>O SICC mudou de endereço. <a href="https://sicc-prod.john-alleff01.workers.dev/">Abrir o novo SICC</a>.</p></body></html>'''
+          for name in ("index.html", "404.html"):
+              Path("../pages-dist", name).write_text(page, encoding="utf-8")
       - name: Mark artifact as static
         run: touch ../pages-dist/.nojekyll
       - name: Upload Pages artifact
